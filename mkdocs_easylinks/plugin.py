@@ -123,7 +123,7 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         return False
 
     def on_page_markdown(
-        self, markdown: str, *, page: Page, config: MkDocsConfig
+        self, markdown: str, *, page: Page, config: MkDocsConfig, files: Files
     ) -> str:
         """Replace simple filename links with full path links."""
         return self._process_links(markdown, page)
