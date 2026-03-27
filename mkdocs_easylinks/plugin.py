@@ -4,10 +4,10 @@ import os
 import re
 import logging
 import fnmatch
-from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from collections import defaultdict
 from mkdocs.config import config_options
+from mkdocs.config.base import Config
 from mkdocs.plugins import BasePlugin
 from mkdocs.structure.files import Files
 from mkdocs.structure.pages import Page
@@ -16,16 +16,18 @@ from mkdocs.config.defaults import MkDocsConfig
 logger = logging.getLogger("mkdocs.plugins.easylinks")
 
 
-class EasyLinksPlugin(BasePlugin):
+class EasyLinksConfig(Config):
+    warn_on_missing = config_options.Type(bool, default=True)
+    warn_on_ambiguous = config_options.Type(bool, default=True)
+    ignore_files = config_options.Type(list, default=[])
+    exclude_dirs = config_options.Type(list, default=[])
+    show_stats = config_options.Type(bool, default=False)
+
+
+class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
     """Plugin to resolve markdown links by filename only."""
 
-    config_scheme = (
-        ("warn_on_missing", config_options.Type(bool, default=True)),
-        ("warn_on_ambiguous", config_options.Type(bool, default=True)),
-        ("ignore_files", config_options.Type(list, default=[])),
-        ("exclude_dirs", config_options.Type(list, default=[])),
-        ("show_stats", config_options.Type(bool, default=False)),
-    )
+    _link_pattern = re.compile(r'(!)?\[([^\]]+)\]\(([^)]+)\)')
 
     def __init__(self):
         super().__init__()
@@ -41,6 +43,7 @@ class EasyLinksPlugin(BasePlugin):
             "links_unresolved": 0,
             "images_processed": 0,
             "images_resolved": 0,
+            "images_unresolved": 0,
         }
         self.link_counts = defaultdict(int)  # Track how many times each file is linked
 
@@ -73,6 +76,7 @@ class EasyLinksPlugin(BasePlugin):
                 if filename not in self.ambiguous_files:
                     self.ambiguous_files[filename] = [self.file_map[filename]]
                 self.ambiguous_files[filename].append(file.src_path)
+                self.stats["files_indexed"] += 1
             else:
                 self.file_map[filename] = file.src_path
                 self.stats["files_indexed"] += 1
@@ -101,7 +105,7 @@ class EasyLinksPlugin(BasePlugin):
             # Normalize excluded dir
             excluded = excluded_dir.rstrip("/") + "/"
             # Check if file path starts with excluded directory
-            if normalized_path.startswith(excluded) or ("/" + excluded) in ("/" + normalized_path):
+            if normalized_path.startswith(excluded):
                 return True
 
         return False
@@ -119,19 +123,15 @@ class EasyLinksPlugin(BasePlugin):
         return False
 
     def on_page_markdown(
-        self, markdown: str, *, page: Page, config: MkDocsConfig, files: Files
+        self, markdown: str, *, page: Page, config: MkDocsConfig
     ) -> str:
         """Replace simple filename links with full path links."""
-        return self._process_links(markdown, page, files)
+        return self._process_links(markdown, page)
 
-    def _process_links(self, markdown: str, page: Page, files: Files) -> str:
+    def _process_links(self, markdown: str, page: Page) -> str:
         """Process markdown links and image links, replacing simple filenames with full paths."""
         # Extract code fences and HTML comments before processing
         markdown, protected_blocks = self._extract_protected_blocks(markdown)
-
-        # Pattern to match markdown links and images: [text](link) or ![alt](image)
-        # The (!) captures the optional exclamation mark for images
-        link_pattern = re.compile(r'(!)?\[([^\]]+)\]\(([^)]+)\)')
 
         def replace_link(match):
             is_image = match.group(1)  # Will be '!' for images, None for regular links
@@ -139,10 +139,8 @@ class EasyLinksPlugin(BasePlugin):
             link_url = match.group(3)
 
             # Skip if it's an external link, anchor, or absolute path
-            if any([
-                link_url.startswith(('http://', 'https://', '//', '#', '/')),
-                ':' in link_url and not link_url.startswith('file:'),
-            ]):
+            if (link_url.startswith(('http://', 'https://', '//', '#', '/'))
+                    or (':' in link_url and not link_url.startswith('file:'))):
                 return match.group(0)
 
             # Extract anchor if present (only relevant for links, not images)
@@ -159,7 +157,7 @@ class EasyLinksPlugin(BasePlugin):
                 else:
                     self.stats["links_processed"] += 1
 
-                resolved_path = self._resolve_filename(link_url, page)
+                resolved_path = self._resolve_filename(link_url)
                 if resolved_path:
                     # Track successful resolution
                     if is_image:
@@ -175,8 +173,11 @@ class EasyLinksPlugin(BasePlugin):
                     prefix = "!" if is_image else ""
                     return f"{prefix}[{link_text}]({relative_path}{anchor})"
                 else:
-                    # Track unresolved links
-                    self.stats["links_unresolved"] += 1
+                    # Track unresolved links/images separately
+                    if is_image:
+                        self.stats["images_unresolved"] += 1
+                    else:
+                        self.stats["links_unresolved"] += 1
 
                     if self.config["warn_on_missing"]:
                         file_type = "image" if is_image else "file"
@@ -186,14 +187,14 @@ class EasyLinksPlugin(BasePlugin):
 
             return match.group(0)
 
-        markdown = link_pattern.sub(replace_link, markdown)
+        markdown = self._link_pattern.sub(replace_link, markdown)
 
         # Restore code fences and HTML comments
         markdown = self._restore_protected_blocks(markdown, protected_blocks)
 
         return markdown
 
-    def _extract_protected_blocks(self, markdown: str) -> tuple[str, dict]:
+    def _extract_protected_blocks(self, markdown: str) -> Tuple[str, dict]:
         """Extract code fences and HTML comments, replacing them with placeholders.
 
         Note: Only explicit fenced code blocks (``` or ~~~) are protected.
@@ -203,9 +204,7 @@ class EasyLinksPlugin(BasePlugin):
         protected_blocks = {}
         counter = 0
 
-        # Extract fenced code blocks only (``` or ~~~)
-        # Indented code blocks are NOT protected to support MkDocs admonitions
-        def replace_code_fence(match):
+        def make_placeholder(match):
             nonlocal counter
             placeholder = f"___PROTECTED_BLOCK_{counter}___"
             protected_blocks[placeholder] = match.group(0)
@@ -213,24 +212,18 @@ class EasyLinksPlugin(BasePlugin):
             return placeholder
 
         # Match fenced code blocks (both ``` and ~~~)
+        # Indented code blocks are NOT protected to support MkDocs admonitions
         markdown = re.sub(
             r'^```[\s\S]*?^```|^~~~[\s\S]*?^~~~',
-            replace_code_fence,
+            make_placeholder,
             markdown,
             flags=re.MULTILINE
         )
 
         # Extract HTML comments
-        def replace_html_comment(match):
-            nonlocal counter
-            placeholder = f"___PROTECTED_BLOCK_{counter}___"
-            protected_blocks[placeholder] = match.group(0)
-            counter += 1
-            return placeholder
-
         markdown = re.sub(
             r'<!--[\s\S]*?-->',
-            replace_html_comment,
+            make_placeholder,
             markdown
         )
 
@@ -242,7 +235,7 @@ class EasyLinksPlugin(BasePlugin):
             markdown = markdown.replace(placeholder, original)
         return markdown
 
-    def _resolve_filename(self, filename: str, page: Page) -> Optional[str]:
+    def _resolve_filename(self, filename: str) -> Optional[str]:
         """Resolve a filename to its full path within the docs."""
         # Check if file exists in our mapping
         if filename in self.ambiguous_files:
@@ -254,26 +247,8 @@ class EasyLinksPlugin(BasePlugin):
     def _get_relative_path(self, from_path: str, to_path: str) -> str:
         """Calculate relative path from one file to another."""
         from_dir = os.path.dirname(from_path)
-
-        # Convert paths to Path objects for easier manipulation
-        from_parts = Path(from_dir).parts if from_dir else []
-        to_parts = Path(to_path).parts
-
-        # Find common prefix
-        common_length = 0
-        for i, (a, b) in enumerate(zip(from_parts, to_parts)):
-            if a == b:
-                common_length = i + 1
-            else:
-                break
-
-        # Calculate ups needed
-        ups = len(from_parts) - common_length
-
-        # Build relative path
-        relative_parts = [".."] * ups + list(to_parts[common_length:])
-
-        return "/".join(relative_parts) if relative_parts else to_path
+        rel = os.path.relpath(to_path, from_dir) if from_dir else to_path
+        return rel.replace("\\", "/")
 
     def on_post_build(self, *, config: MkDocsConfig) -> None:
         """Display statistics after the build completes."""
@@ -297,6 +272,7 @@ class EasyLinksPlugin(BasePlugin):
         # Image statistics
         logger.info(f"\nImages processed: {self.stats['images_processed']}")
         logger.info(f"Images resolved: {self.stats['images_resolved']}")
+        logger.info(f"Images unresolved: {self.stats['images_unresolved']}")
 
         # Most linked files
         if self.link_counts:

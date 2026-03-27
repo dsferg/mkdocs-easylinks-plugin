@@ -70,7 +70,7 @@ class TestEasyLinksPlugin:
         page = self.create_mock_page("docs/source.md")
         markdown = "[Link text](target.md)"
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert result == "[Link text](target.md)"
 
     def test_link_with_anchor(self):
@@ -80,7 +80,7 @@ class TestEasyLinksPlugin:
         page = self.create_mock_page("docs/index.md")
         markdown = "[Link](target.md#section)"
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert result == "[Link](guides/target.md#section)"
 
     def test_external_links_unchanged(self):
@@ -95,7 +95,7 @@ class TestEasyLinksPlugin:
         ]
 
         for markdown in test_cases:
-            result = self.plugin._process_links(markdown, page, None)
+            result = self.plugin._process_links(markdown, page)
             assert result == markdown
 
     def test_anchor_only_links_unchanged(self):
@@ -103,7 +103,7 @@ class TestEasyLinksPlugin:
         page = self.create_mock_page("docs/index.md")
         markdown = "[Link](#section)"
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert result == markdown
 
     def test_explicit_relative_paths_unchanged(self):
@@ -117,7 +117,7 @@ class TestEasyLinksPlugin:
         ]
 
         for markdown in test_cases:
-            result = self.plugin._process_links(markdown, page, None)
+            result = self.plugin._process_links(markdown, page)
             assert result == markdown
 
     def test_absolute_paths_unchanged(self):
@@ -125,7 +125,7 @@ class TestEasyLinksPlugin:
         page = self.create_mock_page("docs/index.md")
         markdown = "[Link](/docs/file.md)"
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert result == markdown
 
     def test_multiple_links_in_page(self):
@@ -142,7 +142,7 @@ class TestEasyLinksPlugin:
         [Second link](file2.md)
         """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert "[First link](file1.md)" in result
         assert "[Second link](guides/file2.md)" in result
 
@@ -152,17 +152,33 @@ class TestEasyLinksPlugin:
             "index.md": ["docs/index.md", "docs/guides/index.md"]
         }
 
-        page = self.create_mock_page("docs/about.md")
-        resolved = self.plugin._resolve_filename("index.md", page)
+        resolved = self.plugin._resolve_filename("index.md")
 
         assert resolved == "docs/index.md"
+
+    def test_ambiguous_files_counted_in_indexed_stats(self):
+        """Test that duplicate filenames are counted in files_indexed."""
+        mock_config = MagicMock()
+        mock_files = MagicMock(spec=Files)
+
+        file1 = self.create_mock_file("docs/index.md")
+        file2 = self.create_mock_file("docs/guides/index.md")  # duplicate basename
+        file3 = self.create_mock_file("docs/about.md")
+
+        mock_files.__iter__ = MagicMock(return_value=iter([file1, file2, file3]))
+
+        self.plugin.on_files(mock_files, config=mock_config)
+
+        assert self.plugin.stats["total_files_scanned"] == 3
+        assert self.plugin.stats["files_indexed"] == 3  # all three, including the duplicate
+        assert self.plugin.stats["files_ignored"] == 0
+        assert "index.md" in self.plugin.ambiguous_files
 
     def test_missing_file_returns_none(self):
         """Test that missing files return None."""
         self.plugin.file_map = {}
 
-        page = self.create_mock_page("docs/index.md")
-        resolved = self.plugin._resolve_filename("nonexistent.md", page)
+        resolved = self.plugin._resolve_filename("nonexistent.md")
 
         assert resolved is None
 
@@ -176,11 +192,11 @@ class TestEasyLinksPlugin:
         dotfile = self.create_mock_file("docs/.hidden.md")
         another_regular = self.create_mock_file("docs/another.md")
 
-        mock_files.documentation_pages.return_value = [
+        mock_files.__iter__ = MagicMock(return_value=iter([
             regular_file,
             dotfile,
             another_regular,
-        ]
+        ]))
 
         self.plugin.on_files(mock_files, config=mock_config)
 
@@ -206,7 +222,7 @@ This is example code with [a link](target.md) that should not be processed.
 Another [working link](target.md) outside the fence.
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Links outside code fences should be processed
         assert "guides/target.md" in result
@@ -228,7 +244,7 @@ Before comment [working link](target.md).
 After comment [working link](target.md).
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Links outside comments should be processed
         assert "guides/target.md" in result
@@ -259,7 +275,7 @@ echo "[Another link in code](target.md)"
 [Link 3](target.md)
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Count how many times the processed link appears (should be 3)
         processed_count = result.count("guides/target.md")
@@ -274,7 +290,7 @@ echo "[Another link in code](target.md)"
 
     def test_code_fence_with_backticks(self):
         """Test code fences using backticks."""
-        self.plugin.file_map = {"api.md": "docs/api.md"}
+        self.plugin.file_map = {"api.md": "reference/api.md"}
 
         page = self.create_mock_page("docs/index.md")
         markdown = """
@@ -287,17 +303,17 @@ echo "[Another link in code](target.md)"
 [Another normal link](api.md)
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
-        # Should have exactly 2 processed links
-        assert result.count("docs/api.md") == 2
+        # Should have exactly 2 processed links (outside the fence)
+        assert result.count("../reference/api.md") == 2
 
         # Code fence content should be unchanged
         assert "[Link in fence](api.md)" in result
 
     def test_code_fence_with_tildes(self):
         """Test code fences using tildes."""
-        self.plugin.file_map = {"test.md": "docs/test.md"}
+        self.plugin.file_map = {"test.md": "reference/test.md"}
 
         page = self.create_mock_page("docs/index.md")
         markdown = """
@@ -310,10 +326,10 @@ echo "[Another link in code](target.md)"
 [Another normal link](test.md)
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
-        # Should have exactly 2 processed links
-        assert result.count("docs/test.md") == 2
+        # Should have exactly 2 processed links (outside the fence)
+        assert result.count("../reference/test.md") == 2
 
         # Code fence content should be unchanged
         assert "[Link in fence](test.md)" in result
@@ -351,7 +367,7 @@ And a [link](api.md) in the comment
 Final link to [API](api.md).
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Regular links should be processed
         assert "[Link to guide](docs/guide.md)" in result or "[Link to guide](guide.md)" in result
@@ -371,7 +387,7 @@ Final link to [API](api.md).
         page = self.create_mock_page("docs/index.md")
         markdown = "![Diagram](diagram.png)"
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert result == "![Diagram](../assets/images/diagram.png)"
 
     def test_image_link_same_directory(self):
@@ -381,7 +397,7 @@ Final link to [API](api.md).
         page = self.create_mock_page("docs/index.md")
         markdown = "![Logo](logo.svg)"
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert result == "![Logo](logo.svg)"
 
     def test_multiple_image_links(self):
@@ -403,7 +419,7 @@ Some content
 ![Icon](icon.svg)
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         assert "![Header](../images/header.jpg)" in result
         assert "![Footer](../images/footer.png)" in result
@@ -425,7 +441,7 @@ See the [guide](guide.md) for details.
 Read more in the [guide](guide.md).
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Both links should be processed
         assert "[guide](guides/guide.md)" in result
@@ -443,7 +459,7 @@ Read more in the [guide](guide.md).
         ]
 
         for markdown in test_cases:
-            result = self.plugin._process_links(markdown, page, None)
+            result = self.plugin._process_links(markdown, page)
             assert result == markdown
 
     def test_image_with_absolute_path(self):
@@ -451,7 +467,7 @@ Read more in the [guide](guide.md).
         page = self.create_mock_page("docs/index.md")
         markdown = "![Image](/static/image.png)"
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
         assert result == markdown
 
     def test_images_in_code_fences_ignored(self):
@@ -469,7 +485,7 @@ Read more in the [guide](guide.md).
 ![Another working image](diagram.png)
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Images outside code fences should be processed
         assert result.count("../images/diagram.png") == 2
@@ -590,7 +606,7 @@ Read more in the [guide](guide.md).
 [Draft link](draft.md)
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Published link should be processed
         assert "[Published link](published.md)" in result
@@ -735,6 +751,25 @@ Read more in the [guide](guide.md).
         assert "notes.md" not in self.plugin.file_map
         assert "ideas.md" not in self.plugin.file_map
 
+    def test_exclude_dirs_no_partial_name_match(self):
+        """Test that excluding 'api' does not exclude 'apidocs' or 'myapi'."""
+        self.plugin.config["exclude_dirs"] = ["api"]
+
+        mock_config = MagicMock()
+        mock_files = MagicMock(spec=Files)
+
+        in_api = self.create_mock_file("api/exact.md")
+        in_apidocs = self.create_mock_file("apidocs/extended.md")
+        in_myapi = self.create_mock_file("myapi/prefixed.md")
+
+        mock_files.__iter__ = MagicMock(return_value=iter([in_api, in_apidocs, in_myapi]))
+
+        self.plugin.on_files(mock_files, config=mock_config)
+
+        assert "exact.md" not in self.plugin.file_map      # excluded
+        assert "extended.md" in self.plugin.file_map       # NOT excluded
+        assert "prefixed.md" in self.plugin.file_map       # NOT excluded
+
     def test_statistics_tracking(self):
         """Test that statistics are tracked correctly."""
         self.plugin.config["ignore_files"] = ["draft.md"]
@@ -780,7 +815,7 @@ Read more in the [guide](guide.md).
 [Yet another API link](api.md)
 """
 
-        self.plugin._process_links(markdown, page, None)
+        self.plugin._process_links(markdown, page)
 
         # Check link counts
         assert self.plugin.link_counts["docs/api.md"] == 3
@@ -797,7 +832,7 @@ Read more in the [guide](guide.md).
 [Another missing](notfound.md)
 """
 
-        self.plugin._process_links(markdown, page, None)
+        self.plugin._process_links(markdown, page)
 
         assert self.plugin.stats["links_resolved"] == 1
         assert self.plugin.stats["links_unresolved"] == 2
@@ -816,12 +851,28 @@ Read more in the [guide](guide.md).
 [Another link](guide.md)
 """
 
-        self.plugin._process_links(markdown, page, None)
+        self.plugin._process_links(markdown, page)
 
         assert self.plugin.stats["links_processed"] == 2
         assert self.plugin.stats["links_resolved"] == 2
         assert self.plugin.stats["images_processed"] == 1
         assert self.plugin.stats["images_resolved"] == 1
+
+    def test_statistics_unresolved_images(self):
+        """Test that unresolved images increment images_unresolved, not links_unresolved."""
+        self.plugin.file_map = {"exists.png": "images/exists.png"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = """
+![Found](exists.png)
+![Missing](missing.png)
+"""
+
+        self.plugin._process_links(markdown, page)
+
+        assert self.plugin.stats["images_resolved"] == 1
+        assert self.plugin.stats["images_unresolved"] == 1
+        assert self.plugin.stats["links_unresolved"] == 0  # image failures must not bleed here
 
     def test_combined_ignore_and_exclude(self):
         """Test that ignore_files and exclude_dirs work together."""
@@ -853,7 +904,7 @@ Read more in the [guide](guide.md).
 
     def test_indented_content_processed(self):
         """Test that indented content (like in admonitions) is processed for links."""
-        self.plugin.file_map = {"guide.md": "docs/guide.md"}
+        self.plugin.file_map = {"guide.md": "reference/guide.md"}
 
         page = self.create_mock_page("docs/index.md")
         markdown = """
@@ -869,10 +920,10 @@ Read more in the [guide](guide.md).
     Another [guide reference](guide.md) here.
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # All links should be processed (indented content is NOT protected)
-        assert result.count("docs/guide.md") == 3 or result.count("[guide](docs/guide.md)") >= 1
+        assert result.count("../reference/guide.md") == 3
 
     def test_indented_list_links_processed(self):
         """Test that links in indented lists are processed."""
@@ -888,14 +939,14 @@ Some text:
         - Even more nested [API](api.md)
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # All indented links should be processed
         assert result.count("reference/api.md") == 3
 
     def test_fenced_vs_indented_code(self):
         """Test that fenced code is protected but indented content is not."""
-        self.plugin.file_map = {"example.md": "docs/example.md"}
+        self.plugin.file_map = {"example.md": "reference/example.md"}
 
         page = self.create_mock_page("docs/index.md")
         markdown = """
@@ -913,14 +964,14 @@ Indented content in admonition (SHOULD be processed):
 Regular paragraph with [example link](example.md).
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Fenced code link should NOT be processed
         assert "# [example](example.md)" in result
 
         # Indented admonition link SHOULD be processed
         # Count should be 2 (one in admonition, one in regular paragraph)
-        assert result.count("docs/example.md") == 2 or result.count("[example](docs/example.md)") >= 1
+        assert result.count("../reference/example.md") == 2
 
     def test_mkdocs_admonition_with_images(self):
         """Test that images in MkDocs admonitions are processed."""
@@ -934,7 +985,7 @@ Regular paragraph with [example link](example.md).
     The diagram above shows the architecture.
 """
 
-        result = self.plugin._process_links(markdown, page, None)
+        result = self.plugin._process_links(markdown, page)
 
         # Image in admonition should be processed
         assert "../images/diagram.png" in result

@@ -86,6 +86,8 @@ plugins:
 
 All files in these directories (and subdirectories) will be excluded from indexing.
 
+> **Note:** Directory paths are matched as prefixes against each file's path within the docs directory. This means `exclude_dirs: ["api"]` excludes `api/page.md` but **not** `docs/api/page.md`. To exclude a nested directory, specify the full path from the docs root: `exclude_dirs: ["docs/api"]`.
+
 #### Link Statistics
 
 Enable `show_stats` to see detailed statistics after your build:
@@ -98,7 +100,8 @@ plugins:
 
 This will display:
 - Files scanned and indexed
-- Links and images processed/resolved
+- Links processed, resolved, and unresolved
+- Images processed, resolved, and unresolved
 - Most frequently linked files
 - Orphaned files (indexed but never linked)
 
