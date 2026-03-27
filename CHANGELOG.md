@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - 2026-03-26
+
+### Fixed
+- Protected block placeholders now use a UUID-based prefix, preventing a collision where a literal `___PROTECTED_BLOCK_N___` string in markdown would be incorrectly replaced with code fence content during processing
+
 ## [0.1.1] - 2026-03-26
 
 ### Fixed

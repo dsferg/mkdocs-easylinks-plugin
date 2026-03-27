@@ -4,6 +4,7 @@ import os
 import re
 import logging
 import fnmatch
+from uuid import uuid4
 from typing import Dict, Optional, Tuple
 from collections import defaultdict
 from mkdocs.config import config_options
@@ -214,10 +215,11 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         """
         protected_blocks = {}
         counter = 0
+        prefix = uuid4().hex
 
         def make_placeholder(match):
             nonlocal counter
-            placeholder = f"___PROTECTED_BLOCK_{counter}___"
+            placeholder = f"EASYLINKS_{prefix}_{counter}"
             protected_blocks[placeholder] = match.group(0)
             counter += 1
             return placeholder
