@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mkdocs-easylinks-plugin"
+version = "0.1.0"
+description = "An MkDocs plugin that allows linking to files by filename only"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Daniel Ferguson"}
+]
+keywords = ["mkdocs", "plugin", "links", "cross-references"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "mkdocs>=1.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/mkdocs-easylinks-plugin"
+Documentation = "https://github.com/yourusername/mkdocs-easylinks-plugin"
+Repository = "https://github.com/yourusername/mkdocs-easylinks-plugin"
+
+[project.entry-points."mkdocs.plugins"]
+easylinks = "mkdocs_easylinks.plugin:EasyLinksPlugin"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mkdocs_easylinks*"]
