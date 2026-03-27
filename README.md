@@ -20,12 +20,6 @@ An MkDocs plugin that allows you to create cross-references and embed images by 
 pip install mkdocs-easylinks-plugin
 ```
 
-Or install directly from source:
-
-```bash
-pip install -e .
-```
-
 ## Usage
 
 Add the plugin to your `mkdocs.yml`:
