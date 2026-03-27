@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mkdocs-easylinks-plugin"
-version = "0.1.0"
+version = "0.1.1"
 description = "An MkDocs plugin that allows linking to files by filename only"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -23,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "mkdocs>=1.4.0",
@@ -35,9 +36,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/mkdocs-easylinks-plugin"
-Documentation = "https://github.com/yourusername/mkdocs-easylinks-plugin"
-Repository = "https://github.com/yourusername/mkdocs-easylinks-plugin"
+Homepage = "https://github.com/dsferg/mkdocs-easylinks-plugin"
+Documentation = "https://github.com/dsferg/mkdocs-easylinks-plugin"
+Repository = "https://github.com/dsferg/mkdocs-easylinks-plugin"
 
 [project.entry-points."mkdocs.plugins"]
 easylinks = "mkdocs_easylinks.plugin:EasyLinksPlugin"

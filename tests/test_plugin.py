@@ -817,6 +817,35 @@ Read more in the [guide](guide.md).
         assert self.plugin.stats["files_indexed"] == 2
         assert self.plugin.stats["files_ignored"] == 3  # dotfile, ignored, excluded
 
+    def test_stats_reset_on_rebuild(self):
+        """Test that stats and link_counts reset on each on_files call (e.g. during live reload)."""
+        mock_config = MagicMock()
+        mock_files = MagicMock(spec=Files)
+        file1 = self.create_mock_file("docs/page.md")
+        mock_files.__iter__ = MagicMock(return_value=iter([file1]))
+
+        self.plugin.on_files(mock_files, config=mock_config)
+        assert self.plugin.stats["total_files_scanned"] == 1
+
+        # Simulate a second build (live reload)
+        mock_files.__iter__ = MagicMock(return_value=iter([file1]))
+        self.plugin.on_files(mock_files, config=mock_config)
+
+        # Stats should reflect only the second build, not accumulate
+        assert self.plugin.stats["total_files_scanned"] == 1
+
+    def test_link_counts_reset_on_rebuild(self):
+        """Test that link_counts reset on each on_files call."""
+        mock_config = MagicMock()
+        mock_files = MagicMock(spec=Files)
+        mock_files.__iter__ = MagicMock(return_value=iter([]))
+
+        self.plugin.link_counts["docs/api.md"] = 99
+
+        self.plugin.on_files(mock_files, config=mock_config)
+
+        assert len(self.plugin.link_counts) == 0
+
     def test_link_counting_statistics(self):
         """Test that link counts are tracked."""
         self.plugin.file_map = {
@@ -890,6 +919,95 @@ Read more in the [guide](guide.md).
         assert self.plugin.stats["images_resolved"] == 1
         assert self.plugin.stats["images_unresolved"] == 1
         assert self.plugin.stats["links_unresolved"] == 0  # image failures must not bleed here
+
+    def test_post_build_stats_suppressed_when_disabled(self, caplog):
+        """Test that on_post_build logs nothing when show_stats is false."""
+        import logging
+        self.plugin.config["show_stats"] = False
+        mock_config = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=mock_config)
+
+        assert len(caplog.messages) == 0
+
+    def test_post_build_stats_logged_when_enabled(self, caplog):
+        """Test that on_post_build logs all stat categories when show_stats is true."""
+        import logging
+        self.plugin.config["show_stats"] = True
+        self.plugin.stats.update({
+            "total_files_scanned": 10,
+            "files_indexed": 8,
+            "files_ignored": 2,
+            "links_processed": 5,
+            "links_resolved": 4,
+            "links_unresolved": 1,
+            "images_processed": 3,
+            "images_resolved": 3,
+            "images_unresolved": 0,
+        })
+        mock_config = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=mock_config)
+
+        joined = "\n".join(caplog.messages)
+        assert "Files scanned: 10" in joined
+        assert "Files indexed: 8" in joined
+        assert "Files ignored: 2" in joined
+        assert "Links processed: 5" in joined
+        assert "Links resolved: 4" in joined
+        assert "Links unresolved: 1" in joined
+        assert "Images processed: 3" in joined
+        assert "Images resolved: 3" in joined
+        assert "Images unresolved: 0" in joined
+
+    def test_post_build_most_linked_files(self, caplog):
+        """Test that most frequently linked files are logged."""
+        import logging
+        self.plugin.config["show_stats"] = True
+        self.plugin.link_counts["docs/api.md"] = 5
+        self.plugin.link_counts["docs/guide.md"] = 2
+        mock_config = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=mock_config)
+
+        joined = "\n".join(caplog.messages)
+        assert "docs/api.md" in joined
+        assert "docs/guide.md" in joined
+
+    def test_post_build_orphaned_files(self, caplog):
+        """Test that orphaned files are reported."""
+        import logging
+        self.plugin.config["show_stats"] = True
+        self.plugin.file_map = {
+            "api.md": "docs/api.md",
+            "guide.md": "docs/guide.md",
+        }
+        self.plugin.link_counts["docs/api.md"] = 1  # guide.md is orphaned
+        mock_config = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=mock_config)
+
+        joined = "\n".join(caplog.messages)
+        assert "docs/guide.md" in joined
+        assert "Orphaned" in joined
+
+    def test_post_build_orphaned_files_truncated(self, caplog):
+        """Test that orphaned files list is truncated after 10 entries."""
+        import logging
+        self.plugin.config["show_stats"] = True
+        self.plugin.file_map = {f"file{i}.md": f"docs/file{i}.md" for i in range(15)}
+        # link_counts is empty so all 15 are orphaned
+        mock_config = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=mock_config)
+
+        joined = "\n".join(caplog.messages)
+        assert "... and 5 more" in joined
 
     def test_combined_ignore_and_exclude(self):
         """Test that ignore_files and exclude_dirs work together."""

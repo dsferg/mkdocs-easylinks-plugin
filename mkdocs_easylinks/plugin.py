@@ -51,6 +51,8 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         """Build a mapping of filenames to their full paths."""
         self.file_map = {}
         self.ambiguous_files = {}
+        self.stats = {key: 0 for key in self.stats}
+        self.link_counts = defaultdict(int)
 
         # Process all files (documentation pages, images, etc.)
         for file in files:

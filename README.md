@@ -202,6 +202,31 @@ This design choice ensures the plugin works seamlessly with MkDocs features like
 - Files starting with `.` (dotfiles) - always ignored
 - Files listed in `ignore_files` configuration - useful for drafts and templates
 
+## Using with mkdocs-macros-plugin (Snippets)
+
+If you use [mkdocs-macros-plugin](https://mkdocs-macros-plugin.readthedocs.io/) to include snippet files via `{% include '...' %}`, easylinks works correctly with no extra configuration — as long as the plugin order in `mkdocs.yml` is correct:
+
+```yaml
+plugins:
+  - macros:
+      include_dir: docs/.snippets
+  - easylinks        # must come after macros
+```
+
+Because macros runs first, snippet content is inlined into the page before easylinks processes it. Links in snippets are resolved relative to the **including page**, not the snippet file itself — which is exactly the right behaviour when a snippet may be included from pages at different directory levels.
+
+**Best practices:**
+
+- Always list `easylinks` after `macros` in your `plugins` configuration.
+- Use simple filename links (e.g. `[text](target.md)`) in your snippets rather than relative paths, since relative paths would break when the same snippet is included from different locations.
+- If your snippets directory could contain files whose names clash with published docs files, add it to `exclude_dirs` to prevent false ambiguity warnings:
+
+```yaml
+plugins:
+  - easylinks:
+      exclude_dirs: ['.snippets']
+```
+
 ## Handling Ambiguous Filenames
 
 If you have multiple files with the same name (e.g., `index.md` in different folders), the plugin will:
@@ -216,7 +241,7 @@ If you have multiple files with the same name (e.g., `index.md` in different fol
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/mkdocs-easylinks-plugin.git
+git clone https://github.com/dsferg/mkdocs-easylinks-plugin.git
 cd mkdocs-easylinks-plugin
 
 # Install in development mode
