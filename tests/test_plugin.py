@@ -156,6 +156,23 @@ class TestEasyLinksPlugin:
 
         assert resolved == "docs/index.md"
 
+    def test_ambiguous_file_per_page_warning(self, caplog):
+        """Test that using an ambiguous filename on a page emits a per-page warning."""
+        import logging
+        self.plugin.config["warn_on_ambiguous"] = True
+        self.plugin.file_map = {"index.md": "docs/index.md"}
+        self.plugin.ambiguous_files = {
+            "index.md": ["docs/index.md", "docs/guides/index.md"]
+        }
+
+        page = self.create_mock_page("docs/about.md")
+        markdown = "[Home](index.md)"
+
+        with caplog.at_level(logging.WARNING, logger="mkdocs.plugins.easylinks"):
+            self.plugin._process_links(markdown, page)
+
+        assert any("docs/about.md" in msg and "index.md" in msg for msg in caplog.messages)
+
     def test_ambiguous_files_counted_in_indexed_stats(self):
         """Test that duplicate filenames are counted in files_indexed."""
         mock_config = MagicMock()

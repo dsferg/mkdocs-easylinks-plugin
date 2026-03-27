@@ -85,7 +85,7 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         if self.config["warn_on_ambiguous"] and self.ambiguous_files:
             for filename, paths in self.ambiguous_files.items():
                 logger.warning(
-                    f"Ambiguous filename '{filename}' found in multiple locations:\n"
+                    f"easylinks: Ambiguous filename '{filename}' found in multiple locations:\n"
                     + "\n".join(f"  - {path}" for path in paths)
                     + "\nLinks to this file will use the first occurrence. "
                     "Consider using full paths for disambiguation."
@@ -159,6 +159,15 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
 
                 resolved_path = self._resolve_filename(link_url)
                 if resolved_path:
+                    # Warn if this filename is ambiguous
+                    if self.config["warn_on_ambiguous"] and link_url in self.ambiguous_files:
+                        all_paths = self.ambiguous_files[link_url]
+                        logger.warning(
+                            f"easylinks: Ambiguous filename '{link_url}' referred to in "
+                            f"'{page.file.src_path}': exists at {all_paths}. "
+                            f"Using '{resolved_path}'."
+                        )
+
                     # Track successful resolution
                     if is_image:
                         self.stats["images_resolved"] += 1
@@ -182,7 +191,7 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
                     if self.config["warn_on_missing"]:
                         file_type = "image" if is_image else "file"
                         logger.warning(
-                            f"Could not resolve {file_type} link to '{link_url}' on page '{page.file.src_path}'"
+                            f"easylinks: Could not resolve {file_type} link to '{link_url}' on page '{page.file.src_path}'"
                         )
 
             return match.group(0)
