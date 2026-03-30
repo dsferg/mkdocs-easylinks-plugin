@@ -12,7 +12,7 @@ An MkDocs plugin that allows you to create cross-references and embed images by 
 - **Link statistics**: See which files are most linked and find orphaned content
 - **Ambiguity warnings**: Get notified if multiple files share the same name
 - **Material for MkDocs compatible**: Works seamlessly with Material theme
-- **Smart protection**: Code fences and HTML comments are preserved unchanged
+- **Smart protection**: Code fences and HTML comments are preserved unchanged by default (configurable)
 
 ## Installation
 
@@ -156,8 +156,8 @@ Anchors work for document links:
 - `[text](/absolute/path.md)` - Absolute paths
 - `[text](../relative/path.md)` - Explicit relative paths with directories
 - `[text](#anchor)` - Fragment-only links
-- Links/images inside code fences (` ``` ` or `~~~`)
-- Links/images inside HTML comments (`<!-- -->`)
+- Links/images inside code fences (` ``` ` or `~~~`) — unless `protect_code_fences: false`
+- Links/images inside HTML comments (`<!-- -->`) — unless `protect_html_comments: false`
 
 ### Protected Content
 
@@ -175,7 +175,7 @@ The plugin intelligently ignores links in:
 <!-- This [link](example.md) won't be processed -->
 ```
 
-This ensures that example code and commented-out content remain unchanged.
+This ensures that example code and commented-out content remain unchanged. Both behaviours are configurable via `protect_code_fences` and `protect_html_comments`.
 
 **Important: Indented Content**
 
@@ -199,6 +199,7 @@ This design choice ensures the plugin works seamlessly with MkDocs features like
 **Files that are excluded from mapping:**
 - Files starting with `.` (dotfiles) - always ignored
 - Files listed in `ignore_files` configuration - useful for drafts and templates
+- Files in directories listed in `exclude_dirs`
 
 ## Using with mkdocs-macros-plugin (Snippets)
 
