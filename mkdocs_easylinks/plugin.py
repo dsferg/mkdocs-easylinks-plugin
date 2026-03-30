@@ -31,15 +31,19 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
     """Plugin to resolve markdown links by filename only."""
 
     _link_pattern = re.compile(r'(!)?\[([^\]]+)\]\(([^)]+)\)')
+    _code_fence_pattern = re.compile(r'^```[\s\S]*?^```|^~~~[\s\S]*?^~~~', re.MULTILINE)
+    _html_comment_pattern = re.compile(r'<!--[\s\S]*?-->')
 
     def __init__(self):
         super().__init__()
         self.file_map: Dict[str, str] = {}
         self.ambiguous_files: Dict[str, list] = {}
+        self._normalized_exclude_dirs: list = []
         # Statistics tracking
         self.stats = {
             "total_files_scanned": 0,
             "files_indexed": 0,
+            "files_ambiguous": 0,
             "files_ignored": 0,
             "links_processed": 0,
             "links_resolved": 0,
@@ -56,6 +60,9 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         self.ambiguous_files = {}
         self.stats = {key: 0 for key in self.stats}
         self.link_counts = defaultdict(int)
+        self._normalized_exclude_dirs = [
+            d.replace("\\", "/").rstrip("/") + "/" for d in self.config["exclude_dirs"]
+        ]
 
         # Process all files (documentation pages, images, etc.)
         for file in files:
@@ -81,7 +88,7 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
                 if filename not in self.ambiguous_files:
                     self.ambiguous_files[filename] = [self.file_map[filename]]
                 self.ambiguous_files[filename].append(file.src_path)
-                self.stats["files_indexed"] += 1
+                self.stats["files_ambiguous"] += 1
             else:
                 self.file_map[filename] = file.src_path
                 self.stats["files_indexed"] += 1
@@ -100,32 +107,15 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
 
     def _is_excluded_dir(self, file_path: str) -> bool:
         """Check if a file is in an excluded directory."""
-        if not self.config["exclude_dirs"]:
+        if not self._normalized_exclude_dirs:
             return False
 
-        # Normalize the path
         normalized_path = file_path.replace("\\", "/")
-
-        for excluded_dir in self.config["exclude_dirs"]:
-            # Normalize excluded dir
-            excluded = excluded_dir.rstrip("/") + "/"
-            # Check if file path starts with excluded directory
-            if normalized_path.startswith(excluded):
-                return True
-
-        return False
+        return any(normalized_path.startswith(d) for d in self._normalized_exclude_dirs)
 
     def _should_ignore_file(self, filename: str) -> bool:
         """Check if a filename matches any ignore pattern (supports glob patterns)."""
-        if not self.config["ignore_files"]:
-            return False
-
-        for pattern in self.config["ignore_files"]:
-            # Support both exact match and glob patterns
-            if fnmatch.fnmatch(filename, pattern):
-                return True
-
-        return False
+        return any(fnmatch.fnmatch(filename, p) for p in self.config["ignore_files"])
 
     def on_page_markdown(
         self, markdown: str, *, page: Page, config: MkDocsConfig, files: Files
@@ -229,20 +219,11 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         # Match fenced code blocks (both ``` and ~~~)
         # Indented code blocks are NOT protected to support MkDocs admonitions
         if self.config["protect_code_fences"]:
-            markdown = re.sub(
-                r'^```[\s\S]*?^```|^~~~[\s\S]*?^~~~',
-                make_placeholder,
-                markdown,
-                flags=re.MULTILINE
-            )
+            markdown = self._code_fence_pattern.sub(make_placeholder, markdown)
 
         # Extract HTML comments
         if self.config["protect_html_comments"]:
-            markdown = re.sub(
-                r'<!--[\s\S]*?-->',
-                make_placeholder,
-                markdown
-            )
+            markdown = self._html_comment_pattern.sub(make_placeholder, markdown)
 
         return markdown, protected_blocks
 
@@ -279,6 +260,7 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         # File statistics
         logger.info(f"Files scanned: {self.stats['total_files_scanned']}")
         logger.info(f"Files indexed: {self.stats['files_indexed']}")
+        logger.info(f"Files ambiguous: {self.stats['files_ambiguous']}")
         logger.info(f"Files ignored: {self.stats['files_ignored']}")
 
         # Link statistics

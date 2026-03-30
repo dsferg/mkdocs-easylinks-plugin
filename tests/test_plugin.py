@@ -176,7 +176,7 @@ class TestEasyLinksPlugin:
         assert any("docs/about.md" in msg and "index.md" in msg for msg in caplog.messages)
 
     def test_ambiguous_files_counted_in_indexed_stats(self):
-        """Test that duplicate filenames are counted in files_indexed."""
+        """Test that duplicate filenames are counted in files_ambiguous, not files_indexed."""
         mock_config = MagicMock()
         mock_files = MagicMock(spec=Files)
 
@@ -189,7 +189,8 @@ class TestEasyLinksPlugin:
         self.plugin.on_files(mock_files, config=mock_config)
 
         assert self.plugin.stats["total_files_scanned"] == 3
-        assert self.plugin.stats["files_indexed"] == 3  # all three, including the duplicate
+        assert self.plugin.stats["files_indexed"] == 2    # unique filenames only
+        assert self.plugin.stats["files_ambiguous"] == 1  # duplicates tracked separately
         assert self.plugin.stats["files_ignored"] == 0
         assert "index.md" in self.plugin.ambiguous_files
 

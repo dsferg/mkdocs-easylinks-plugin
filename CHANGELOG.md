@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4] - 2026-03-30
+
+### Changed
+- Pre-compiled code fence and HTML comment regex patterns as class-level constants for consistency and minor performance improvement
+- Excluded directories are now normalized once per build rather than on every file check
+- `_should_ignore_file` simplified to a single `any()` expression
+- `files_ambiguous` stat now tracked separately from `files_indexed`, making both counts accurate and meaningful
+- Development status classifier updated from Alpha to Beta
+- README stats section updated to reflect `files_ambiguous` and `files_ignored` counters
+
+### Fixed
+- `files_indexed` no longer counts ambiguous duplicate filenames — those are now counted in the new `files_ambiguous` stat
+
+### Dev
+- Added mypy type checking to CI (`typecheck` job in GitHub Actions)
+
 ## [0.1.3] - 2026-03-30
 
 ### Added

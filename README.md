@@ -97,7 +97,7 @@ plugins:
 ```
 
 This will display:
-- Files scanned and indexed
+- Files scanned, indexed, ambiguous, and ignored
 - Links processed, resolved, and unresolved
 - Images processed, resolved, and unresolved
 - Most frequently linked files
