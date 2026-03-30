@@ -40,6 +40,8 @@ plugins:
       ignore_files: []           # List of filenames/patterns to ignore (default: [])
       exclude_dirs: []           # List of directories to exclude (default: [])
       show_stats: false          # Show link statistics after build (default: false)
+      protect_code_fences: true  # Leave links inside fenced code blocks unchanged (default: true)
+      protect_html_comments: true  # Leave links inside HTML comments unchanged (default: true)
 ```
 
 #### Available Options
@@ -49,6 +51,8 @@ plugins:
 - **`ignore_files`** (list, default: `[]`): List of filenames/patterns to exclude from link resolution (supports glob patterns)
 - **`exclude_dirs`** (list, default: `[]`): List of directories to exclude completely
 - **`show_stats`** (bool, default: `false`): Display link statistics after the build completes
+- **`protect_code_fences`** (bool, default: `true`): When enabled, links inside fenced code blocks (` ``` ` or `~~~`) are left unchanged. Set to `false` to process them like normal content.
+- **`protect_html_comments`** (bool, default: `true`): When enabled, links inside HTML comments (`<!-- -->`) are left unchanged. Set to `false` to process them like normal content.
 
 #### Ignoring Specific Files
 

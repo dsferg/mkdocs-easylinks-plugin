@@ -19,6 +19,8 @@ class TestEasyLinksPlugin:
             "ignore_files": [],
             "exclude_dirs": [],
             "show_stats": False,
+            "protect_code_fences": True,
+            "protect_html_comments": True,
         }
 
     def create_mock_file(self, src_path: str, is_documentation=True):
@@ -223,6 +225,31 @@ class TestEasyLinksPlugin:
 
         # Verify that dotfiles are NOT in the map
         assert ".hidden.md" not in self.plugin.file_map
+
+    def test_protect_code_fences_disabled(self):
+        """Test that links in code fences are processed when protect_code_fences is false."""
+        self.plugin.config["protect_code_fences"] = False
+        self.plugin.file_map = {"target.md": "reference/target.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = """
+```
+[Link in fence](target.md)
+```
+"""
+        result = self.plugin._process_links(markdown, page)
+        assert "../reference/target.md" in result
+
+    def test_protect_html_comments_disabled(self):
+        """Test that links in HTML comments are processed when protect_html_comments is false."""
+        self.plugin.config["protect_html_comments"] = False
+        self.plugin.file_map = {"target.md": "reference/target.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "<!-- [Link in comment](target.md) -->"
+
+        result = self.plugin._process_links(markdown, page)
+        assert "../reference/target.md" in result
 
     def test_links_in_code_fences_ignored(self):
         """Test that links inside code fences are not processed."""

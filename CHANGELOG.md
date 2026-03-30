@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-03-30
+
+### Added
+- `protect_code_fences` config option (default: `true`) — set to `false` to process links inside fenced code blocks rather than leaving them unchanged
+- `protect_html_comments` config option (default: `true`) — set to `false` to process links inside HTML comments rather than leaving them unchanged
+
 ## [0.1.2] - 2026-03-26
 
 ### Fixed

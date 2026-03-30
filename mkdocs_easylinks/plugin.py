@@ -23,6 +23,8 @@ class EasyLinksConfig(Config):
     ignore_files = config_options.Type(list, default=[])
     exclude_dirs = config_options.Type(list, default=[])
     show_stats = config_options.Type(bool, default=False)
+    protect_code_fences = config_options.Type(bool, default=True)
+    protect_html_comments = config_options.Type(bool, default=True)
 
 
 class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
@@ -226,19 +228,21 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
 
         # Match fenced code blocks (both ``` and ~~~)
         # Indented code blocks are NOT protected to support MkDocs admonitions
-        markdown = re.sub(
-            r'^```[\s\S]*?^```|^~~~[\s\S]*?^~~~',
-            make_placeholder,
-            markdown,
-            flags=re.MULTILINE
-        )
+        if self.config["protect_code_fences"]:
+            markdown = re.sub(
+                r'^```[\s\S]*?^```|^~~~[\s\S]*?^~~~',
+                make_placeholder,
+                markdown,
+                flags=re.MULTILINE
+            )
 
         # Extract HTML comments
-        markdown = re.sub(
-            r'<!--[\s\S]*?-->',
-            make_placeholder,
-            markdown
-        )
+        if self.config["protect_html_comments"]:
+            markdown = re.sub(
+                r'<!--[\s\S]*?-->',
+                make_placeholder,
+                markdown
+            )
 
         return markdown, protected_blocks
 
