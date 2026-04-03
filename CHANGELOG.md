@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-04-02
+
+### Removed
+- Dropped support for Python 3.8 and 3.9 (both EOL)
+
 ## [0.1.4] - 2026-03-30
 
 ### Changed
