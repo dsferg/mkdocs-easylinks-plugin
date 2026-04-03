@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-04-02
+
+### Fixed
+- Replaced deprecated `license = {text = "MIT"}` with SPDX expression `license = "MIT"`
+- Removed deprecated `License :: OSI Approved :: MIT License` classifier
+- Bumped setuptools build requirement to `>=77.0.0` to support SPDX license format
+
 ## [0.2.0] - 2026-04-02
 
 ### Removed
