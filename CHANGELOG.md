@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [0.2.2] - 2026-04-13
 
 ### Security
-- Sanitize user-controlled strings (filenames, paths) before writing to the log to prevent log injection via embedded newlines or carriage returns
-- Reject files whose `src_path` escapes the docs root after normalization, guarding against symlink-based path traversal
-- Tightened URL scheme filtering to an allowlist: any URL containing a colon is now passed through untouched, blocking `javascript:`, `data:`, `vbscript:`, `blob:`, `file:`, and any future scheme — not just `http:`/`https:`
-- Empty strings in `exclude_dirs` are now silently skipped; previously an empty entry would normalize to `"/"` and exclude every file in the site
+- Fixed log injection via user-controlled filenames
+- Fixed path traversal via malformed file paths
+- Fixed URL scheme bypass allowing dangerous link types
+- Fixed misconfigured `exclude_dirs` empty-string entry
 
 ### Performance
 - `_restore_protected_blocks` now uses a single compiled regex substitution instead of N sequential `str.replace` calls, making restoration O(n) in document length
