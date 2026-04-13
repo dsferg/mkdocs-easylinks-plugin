@@ -1152,3 +1152,127 @@ Regular paragraph with [example link](example.md).
 
         # Image in admonition should be processed
         assert "../images/diagram.png" in result
+
+    # ------------------------------------------------------------------
+    # Security fix: log injection (_sanitize_log)
+    # ------------------------------------------------------------------
+
+    def test_sanitize_log_escapes_newlines(self):
+        """_sanitize_log must escape newlines so they cannot inject fake log lines."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("file\nINJECTED WARNING.md") == "file\\nINJECTED WARNING.md"
+
+    def test_sanitize_log_escapes_carriage_returns(self):
+        """_sanitize_log must escape carriage returns."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("file\r.md") == "file\\r.md"
+
+    def test_sanitize_log_escapes_tabs(self):
+        """_sanitize_log must escape tab characters."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("file\t.md") == "file\\t.md"
+
+    def test_sanitize_log_normal_string_unchanged(self):
+        """_sanitize_log must leave strings without control characters unchanged."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("subdir/normal-file.md") == "subdir/normal-file.md"
+
+    def test_sanitize_log_multiple_control_chars(self):
+        """_sanitize_log must escape all control character types in one pass."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("a\nb\rc\td") == "a\\nb\\rc\\td"
+
+    # ------------------------------------------------------------------
+    # Security fix: path traversal (_is_safe_path / on_files)
+    # ------------------------------------------------------------------
+
+    def test_is_safe_path_normal_path(self):
+        """A normal relative path should be considered safe."""
+        assert self.plugin._is_safe_path("subdir/file.md") is True
+
+    def test_is_safe_path_root_level_file(self):
+        """A filename at the root level should be safe."""
+        assert self.plugin._is_safe_path("file.md") is True
+
+    def test_is_safe_path_traversal_escape(self):
+        """A path that escapes the docs root must be rejected."""
+        assert self.plugin._is_safe_path("../../etc/passwd") is False
+
+    def test_is_safe_path_single_parent_traversal(self):
+        """A path starting with .. must be rejected."""
+        assert self.plugin._is_safe_path("../outside.md") is False
+
+    def test_is_safe_path_embedded_traversal_that_escapes(self):
+        """An embedded .. sequence that resolves outside the root must be rejected."""
+        assert self.plugin._is_safe_path("subdir/../../../escape.md") is False
+
+    def test_is_safe_path_embedded_traversal_that_stays_inside(self):
+        """An embedded .. that stays within the root should be accepted."""
+        assert self.plugin._is_safe_path("subdir/../other/file.md") is True
+
+    def test_traversal_path_ignored_in_on_files(self):
+        """Files whose src_path escapes the docs root must be excluded from the index."""
+        mock_config = MagicMock()
+        mock_files = MagicMock(spec=Files)
+
+        safe_file = self.create_mock_file("docs/safe.md")
+        traversal_file = self.create_mock_file("../../secret.md")
+
+        mock_files.__iter__ = MagicMock(return_value=iter([safe_file, traversal_file]))
+
+        self.plugin.on_files(mock_files, config=mock_config)
+
+        assert "safe.md" in self.plugin.file_map
+        assert "secret.md" not in self.plugin.file_map
+        assert self.plugin.stats["files_ignored"] == 1
+
+    # ------------------------------------------------------------------
+    # Security fix: URL scheme allowlist
+    # ------------------------------------------------------------------
+
+    def test_dangerous_url_schemes_unchanged(self):
+        """Links with dangerous URL schemes must be returned untouched."""
+        page = self.create_mock_page("docs/index.md")
+
+        dangerous = [
+            "[XSS](javascript:alert(1))",
+            "[Data](data:text/html,<h1>test</h1>)",
+            "[VB](vbscript:msgbox('xss'))",
+            "[Blob](blob:https://example.com/some-uuid)",
+        ]
+
+        for markdown in dangerous:
+            result = self.plugin._process_links(markdown, page)
+            assert result == markdown, f"Expected unchanged: {markdown}"
+
+    def test_file_url_unchanged(self):
+        """file: URLs must be passed through unchanged, not treated as filenames."""
+        # Even if a matching basename happened to be indexed, the scheme must win.
+        self.plugin.file_map = {"passwd": "/etc/passwd"}
+        page = self.create_mock_page("docs/index.md")
+        markdown = "[Secret](file:///etc/passwd)"
+
+        result = self.plugin._process_links(markdown, page)
+        assert result == markdown
+
+    # ------------------------------------------------------------------
+    # Security fix: empty string in exclude_dirs
+    # ------------------------------------------------------------------
+
+    def test_exclude_dirs_empty_string_does_not_exclude_all(self):
+        """An empty string entry in exclude_dirs must not silently exclude every file."""
+        self.plugin.config["exclude_dirs"] = [""]
+
+        mock_config = MagicMock()
+        mock_files = MagicMock(spec=Files)
+
+        file1 = self.create_mock_file("docs/page.md")
+        file2 = self.create_mock_file("docs/another.md")
+
+        mock_files.__iter__ = MagicMock(return_value=iter([file1, file2]))
+
+        self.plugin.on_files(mock_files, config=mock_config)
+
+        assert "page.md" in self.plugin.file_map
+        assert "another.md" in self.plugin.file_map
+        assert self.plugin.stats["files_indexed"] == 2

@@ -17,6 +17,11 @@ from mkdocs.config.defaults import MkDocsConfig
 logger = logging.getLogger("mkdocs.plugins.easylinks")
 
 
+def _sanitize_log(value: str) -> str:
+    """Strip control characters from user-controlled strings before logging."""
+    return value.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+
 class EasyLinksConfig(Config):
     warn_on_missing = config_options.Type(bool, default=True)
     warn_on_ambiguous = config_options.Type(bool, default=True)
@@ -61,12 +66,24 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         self.stats = {key: 0 for key in self.stats}
         self.link_counts = defaultdict(int)
         self._normalized_exclude_dirs = [
-            d.replace("\\", "/").rstrip("/") + "/" for d in self.config["exclude_dirs"]
+            d.replace("\\", "/").rstrip("/") + "/"
+            for d in self.config["exclude_dirs"]
+            if d  # skip empty strings — they would normalize to "/" and exclude everything
         ]
 
         # Process all files (documentation pages, images, etc.)
         for file in files:
             self.stats["total_files_scanned"] += 1
+
+            # Reject paths that escape the docs root (e.g. via symlink traversal)
+            if not self._is_safe_path(file.src_path):
+                logger.warning(
+                    f"easylinks: Skipping file with path outside docs root: "
+                    f"'{_sanitize_log(file.src_path)}'"
+                )
+                self.stats["files_ignored"] += 1
+                continue
+
             filename = os.path.basename(file.src_path)
 
             # Ignore files starting with a dot (hidden files)
@@ -96,14 +113,28 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         # Warn about ambiguous files
         if self.config["warn_on_ambiguous"] and self.ambiguous_files:
             for filename, paths in self.ambiguous_files.items():
+                safe_filename = _sanitize_log(filename)
+                safe_paths = [_sanitize_log(p) for p in paths]
                 logger.warning(
-                    f"easylinks: Ambiguous filename '{filename}' found in multiple locations:\n"
-                    + "\n".join(f"  - {path}" for path in paths)
+                    f"easylinks: Ambiguous filename '{safe_filename}' found in multiple locations:\n"
+                    + "\n".join(f"  - {p}" for p in safe_paths)
                     + "\nLinks to this file will use the first occurrence. "
                     "Consider using full paths for disambiguation."
                 )
 
         return files
+
+    def _is_safe_path(self, src_path: str) -> bool:
+        """Return True if src_path stays within the docs root.
+
+        MkDocs supplies src_path as a relative path (e.g. ``subdir/page.md``).
+        A path that escapes the docs root after normalization (e.g.
+        ``../../etc/passwd``) would produce a traversal link in the output and
+        must be rejected.
+        """
+        if ".." not in src_path:
+            return True
+        return not os.path.normpath(src_path).startswith("..")
 
     def _is_excluded_dir(self, file_path: str) -> bool:
         """Check if a file is in an excluded directory."""
@@ -128,14 +159,28 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         # Extract code fences and HTML comments before processing
         markdown, protected_blocks = self._extract_protected_blocks(markdown)
 
+        # Capture config flags and stats dict as locals to avoid repeated
+        # attribute + dict lookups inside the closure on every link match.
+        warn_on_ambiguous = self.config["warn_on_ambiguous"]
+        warn_on_missing = self.config["warn_on_missing"]
+        stats = self.stats
+        page_src_path = page.file.src_path
+        # Cache relative-path results within this page: from_path is constant,
+        # so keying on to_path alone is sufficient.
+        relative_path_cache: Dict[str, str] = {}
+
         def replace_link(match):
             is_image = match.group(1)  # Will be '!' for images, None for regular links
             link_text = match.group(2)
             link_url = match.group(3)
 
-            # Skip if it's an external link, anchor, or absolute path
+            # Skip external links, anchors, absolute paths, and any URL with a
+            # scheme (colon present). Using a colon as the scheme sentinel is an
+            # intentional allowlist: bare filenames never contain colons, so any
+            # URL that does (http:, https:, javascript:, data:, file:, mailto:,
+            # blob:, vbscript:, etc.) is left untouched rather than resolved.
             if (link_url.startswith(('http://', 'https://', '//', '#', '/'))
-                    or (':' in link_url and not link_url.startswith('file:'))):
+                    or ':' in link_url):
                 return match.group(0)
 
             # Extract anchor if present (only relevant for links, not images)
@@ -148,45 +193,51 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
             if "/" not in link_url and "\\" not in link_url:
                 # Track statistics
                 if is_image:
-                    self.stats["images_processed"] += 1
+                    stats["images_processed"] += 1
                 else:
-                    self.stats["links_processed"] += 1
+                    stats["links_processed"] += 1
 
                 resolved_path = self._resolve_filename(link_url)
                 if resolved_path:
                     # Warn if this filename is ambiguous
-                    if self.config["warn_on_ambiguous"] and link_url in self.ambiguous_files:
+                    if warn_on_ambiguous and link_url in self.ambiguous_files:
                         all_paths = self.ambiguous_files[link_url]
                         logger.warning(
-                            f"easylinks: Ambiguous filename '{link_url}' referred to in "
-                            f"'{page.file.src_path}': exists at {all_paths}. "
-                            f"Using '{resolved_path}'."
+                            f"easylinks: Ambiguous filename '{_sanitize_log(link_url)}' referred to in "
+                            f"'{_sanitize_log(page_src_path)}': exists at "
+                            f"{[_sanitize_log(p) for p in all_paths]}. "
+                            f"Using '{_sanitize_log(resolved_path)}'."
                         )
 
                     # Track successful resolution
                     if is_image:
-                        self.stats["images_resolved"] += 1
+                        stats["images_resolved"] += 1
                     else:
-                        self.stats["links_resolved"] += 1
+                        stats["links_resolved"] += 1
                         # Count how many times each file is linked
                         self.link_counts[resolved_path] += 1
 
-                    # Calculate relative path from current page to target
-                    relative_path = self._get_relative_path(page.file.src_path, resolved_path)
+                    # Calculate relative path from current page to target; cache
+                    # the result since from_path is constant for this page.
+                    if resolved_path not in relative_path_cache:
+                        relative_path_cache[resolved_path] = self._get_relative_path(
+                            page_src_path, resolved_path
+                        )
+                    relative_path = relative_path_cache[resolved_path]
                     # Reconstruct with or without the ! prefix
                     prefix = "!" if is_image else ""
                     return f"{prefix}[{link_text}]({relative_path}{anchor})"
                 else:
                     # Track unresolved links/images separately
                     if is_image:
-                        self.stats["images_unresolved"] += 1
+                        stats["images_unresolved"] += 1
                     else:
-                        self.stats["links_unresolved"] += 1
+                        stats["links_unresolved"] += 1
 
-                    if self.config["warn_on_missing"]:
+                    if warn_on_missing:
                         file_type = "image" if is_image else "file"
                         logger.warning(
-                            f"easylinks: Could not resolve {file_type} link to '{link_url}' on page '{page.file.src_path}'"
+                            f"easylinks: Could not resolve {file_type} link to '{_sanitize_log(link_url)}' on page '{_sanitize_log(page_src_path)}'"
                         )
 
             return match.group(0)
@@ -229,9 +280,10 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
 
     def _restore_protected_blocks(self, markdown: str, protected_blocks: dict) -> str:
         """Restore protected blocks from placeholders."""
-        for placeholder, original in protected_blocks.items():
-            markdown = markdown.replace(placeholder, original)
-        return markdown
+        if not protected_blocks:
+            return markdown
+        pattern = re.compile('|'.join(re.escape(k) for k in protected_blocks))
+        return pattern.sub(lambda m: protected_blocks[m.group(0)], markdown)
 
     def _resolve_filename(self, filename: str) -> Optional[str]:
         """Resolve a filename to its full path within the docs."""

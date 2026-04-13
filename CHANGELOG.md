@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-04-13
+
+### Security
+- Sanitize user-controlled strings (filenames, paths) before writing to the log to prevent log injection via embedded newlines or carriage returns
+- Reject files whose `src_path` escapes the docs root after normalization, guarding against symlink-based path traversal
+- Tightened URL scheme filtering to an allowlist: any URL containing a colon is now passed through untouched, blocking `javascript:`, `data:`, `vbscript:`, `blob:`, `file:`, and any future scheme — not just `http:`/`https:`
+- Empty strings in `exclude_dirs` are now silently skipped; previously an empty entry would normalize to `"/"` and exclude every file in the site
+
+### Performance
+- `_restore_protected_blocks` now uses a single compiled regex substitution instead of N sequential `str.replace` calls, making restoration O(n) in document length
+- `_is_safe_path` short-circuits immediately for paths containing no `..` component (the common case), avoiding the `os.path.normpath` call entirely
+- Config flags and the stats dict are captured as locals before the per-link closure is entered, removing repeated attribute and dict lookups on every link match
+- Relative path results are cached per page so repeated links to the same target file call `_get_relative_path` only once
+
 ## [0.2.1] - 2026-04-02
 
 ### Fixed
