@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3] - 2026-04-29
+
+### Security
+- Expanded log sanitizer to escape ANSI escape sequences, NUL bytes, vertical tab, form feed, and Unicode line separators (U+2028/U+2029) in addition to `\n`, `\r`, and `\t`
+- Path safety check now rejects absolute and drive-relative paths (e.g. `/etc/passwd`, `C:\…`, `\\server\share\…`) in addition to `..` traversal
+
+### Fixed
+- `mkdocs_easylinks.__version__` is now read from installed package metadata, eliminating drift between `pyproject.toml` and the module attribute
+
 ## [0.2.2] - 2026-04-13
 
 ### Security

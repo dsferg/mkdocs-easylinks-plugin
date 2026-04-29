@@ -17,9 +17,28 @@ from mkdocs.config.defaults import MkDocsConfig
 logger = logging.getLogger("mkdocs.plugins.easylinks")
 
 
+_LOG_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
 def _sanitize_log(value: str) -> str:
-    """Strip control characters from user-controlled strings before logging."""
-    return value.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    """Escape control characters and other non-printable codepoints before logging.
+
+    Filenames can legally contain ANSI escape sequences, NULs, vertical tabs,
+    form feeds, or Unicode line separators on POSIX systems. Logging them
+    verbatim would let an attacker spoof log lines, recolor output, or
+    manipulate a terminal that tails the build log.
+    """
+    out = []
+    for c in value:
+        if c in _LOG_ESCAPES:
+            out.append(_LOG_ESCAPES[c])
+        elif c.isprintable():
+            out.append(c)
+        elif ord(c) <= 0xff:
+            out.append(f"\\x{ord(c):02x}")
+        else:
+            out.append(f"\\u{ord(c):04x}")
+    return "".join(out)
 
 
 class EasyLinksConfig(Config):
@@ -128,10 +147,16 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
         """Return True if src_path stays within the docs root.
 
         MkDocs supplies src_path as a relative path (e.g. ``subdir/page.md``).
-        A path that escapes the docs root after normalization (e.g.
-        ``../../etc/passwd``) would produce a traversal link in the output and
-        must be rejected.
+        Absolute paths (``/etc/passwd``, ``C:\\Windows\\...``, UNC paths) and
+        relative paths that escape the docs root after normalization (e.g.
+        ``../../etc/passwd``) would both produce traversal links in the
+        output and must be rejected.
         """
+        # os.path.isabs alone is not enough: on Python 3.13+ Windows it returns
+        # False for drive-relative paths like ``/etc/passwd`` or ``\foo``, which
+        # would still escape the docs root once a drive is resolved.
+        if os.path.isabs(src_path) or src_path.startswith(("/", "\\")):
+            return False
         if ".." not in src_path:
             return True
         return not os.path.normpath(src_path).startswith("..")

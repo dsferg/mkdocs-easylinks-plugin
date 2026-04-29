@@ -1,3 +1,8 @@
 """MkDocs EasyLinks Plugin - Simplified cross-referencing by filename."""
 
-__version__ = "0.1.4"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("mkdocs-easylinks-plugin")
+except PackageNotFoundError:  # pragma: no cover
+    __version__ = "unknown"

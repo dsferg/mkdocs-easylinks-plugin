@@ -1182,6 +1182,31 @@ Regular paragraph with [example link](example.md).
         from mkdocs_easylinks.plugin import _sanitize_log
         assert _sanitize_log("a\nb\rc\td") == "a\\nb\\rc\\td"
 
+    def test_sanitize_log_escapes_ansi_escape(self):
+        """_sanitize_log must escape ESC so terminals tailing logs cannot be hijacked."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("file\x1b[31mRED.md") == "file\\x1b[31mRED.md"
+
+    def test_sanitize_log_escapes_null_byte(self):
+        """_sanitize_log must escape NUL bytes."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("file\x00.md") == "file\\x00.md"
+
+    def test_sanitize_log_escapes_vertical_tab_and_form_feed(self):
+        """_sanitize_log must escape \\v and \\f, which can move the cursor in some terminals."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("a\vb\fc") == "a\\x0bb\\x0cc"
+
+    def test_sanitize_log_escapes_unicode_line_separator(self):
+        """_sanitize_log must escape U+2028 and U+2029, which act as line breaks in some viewers."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("a b c") == "a\\u2028b\\u2029c"
+
+    def test_sanitize_log_preserves_printable_unicode(self):
+        """_sanitize_log must leave printable Unicode (accents, emoji, CJK) alone."""
+        from mkdocs_easylinks.plugin import _sanitize_log
+        assert _sanitize_log("café-日本語-🚀.md") == "café-日本語-🚀.md"
+
     # ------------------------------------------------------------------
     # Security fix: path traversal (_is_safe_path / on_files)
     # ------------------------------------------------------------------
@@ -1209,6 +1234,19 @@ Regular paragraph with [example link](example.md).
     def test_is_safe_path_embedded_traversal_that_stays_inside(self):
         """An embedded .. that stays within the root should be accepted."""
         assert self.plugin._is_safe_path("subdir/../other/file.md") is True
+
+    def test_is_safe_path_rejects_posix_absolute(self):
+        """An absolute POSIX path must be rejected even though it has no '..'."""
+        assert self.plugin._is_safe_path("/etc/passwd") is False
+
+    def test_is_safe_path_rejects_windows_absolute(self):
+        """An absolute Windows path must be rejected when running on Windows."""
+        import os
+        import pytest
+        if os.name != "nt":
+            pytest.skip("Windows-specific path semantics")
+        assert self.plugin._is_safe_path(r"C:\Windows\System32\config\SAM") is False
+        assert self.plugin._is_safe_path(r"\\server\share\file.md") is False
 
     def test_traversal_path_ignored_in_on_files(self):
         """Files whose src_path escapes the docs root must be excluded from the index."""
