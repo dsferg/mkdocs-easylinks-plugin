@@ -156,8 +156,11 @@ Anchors work for document links:
 - `[text](/absolute/path.md)` - Absolute paths
 - `[text](../relative/path.md)` - Explicit relative paths with directories
 - `[text](#anchor)` - Fragment-only links
+- `[text](javascript:...)`, `[text](data:...)`, `[text](mailto:...)`, etc. — any URL containing a colon (treated as a scheme)
 - Links/images inside code fences (` ``` ` or `~~~`) — unless `protect_code_fences: false`
 - Links/images inside HTML comments (`<!-- -->`) — unless `protect_html_comments: false`
+
+> **Security note:** easylinks does not sanitize link targets. Schemed URLs (including `javascript:` and `data:`) are passed through unchanged for the Markdown renderer to handle. XSS protection in your rendered site is the responsibility of MkDocs and the Markdown extensions you have configured — not this plugin.
 
 ### Protected Content
 
