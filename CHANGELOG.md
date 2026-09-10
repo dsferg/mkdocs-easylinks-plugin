@@ -2,11 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-09-10
+
+### Security
+- Statistics output now sanitizes file paths, matching the treatment already applied to warning messages
+
+### Fixed
+- Pages combining more than ten code fences and HTML comments could render corrupted content, with one block's contents appearing in place of another's
+- A code fence nested inside an HTML comment lost its contents and left an internal marker in the rendered page
+- Code fences are now matched as a Markdown renderer matches them: a fence closes only on the same character, repeated at least as many times, alone on its line; an unclosed fence extends to the end of the document; and fences are recognised at any indentation. Links inside four-backtick fences, unclosed fences, and code blocks nested in list items or admonitions are no longer rewritten. Indented *prose* is still processed, as before
+- Links inside inline code spans are no longer rewritten
+- More standard link forms now resolve instead of being skipped: images with no alt text (`![](image.png)`), destinations carrying a title (`[text](file.md "Title")`), angle-bracketed destinations (`[text](<file name.md>)`), and linked images (`[![alt](icon.png)](file.md)`). Titles, angle brackets and surrounding whitespace are preserved
+- A titled link no longer produces a spurious "Could not resolve" warning
+- Links whose anchor contains a colon now resolve instead of being skipped
+- Image embeds count as references, so an embedded image is no longer listed under "Orphaned files" in the `show_stats` output
+
+### Added
+- `protect_inline_code` (bool, default `true`) — set to `false` to process links inside inline code spans like normal content, alongside the existing `protect_code_fences` and `protect_html_comments`
+
+### Changed
+- `show_stats` reports paths with forward slashes on every platform
+- `show_stats` headings now read "Most frequently referenced files" and "Orphaned files (indexed but never referenced)", since both figures cover image embeds as well as links
+
 ## [0.2.3] - 2026-04-29
 
 ### Security
-- Expanded log sanitizer to escape ANSI escape sequences, NUL bytes, vertical tab, form feed, and Unicode line separators (U+2028/U+2029) in addition to `\n`, `\r`, and `\t`
-- Path safety check now rejects absolute and drive-relative paths (e.g. `/etc/passwd`, `C:\…`, `\\server\share\…`) in addition to `..` traversal
+- Expanded the log sanitizer to cover a wider range of control and non-printable characters in filenames
+- Path safety check now rejects absolute and drive-relative paths in addition to `..` traversal
 
 ### Fixed
 - `mkdocs_easylinks.__version__` is now read from installed package metadata, eliminating drift between `pyproject.toml` and the module attribute
