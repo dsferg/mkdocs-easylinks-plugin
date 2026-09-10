@@ -21,6 +21,7 @@ class TestEasyLinksPlugin:
             "show_stats": False,
             "protect_code_fences": True,
             "protect_html_comments": True,
+            "protect_inline_code": True,
         }
 
     def create_mock_file(self, src_path: str, is_documentation=True):
@@ -149,14 +150,40 @@ class TestEasyLinksPlugin:
         assert "[Second link](guides/file2.md)" in result
 
     def test_ambiguous_file_resolution(self):
-        """Test that ambiguous files use the first occurrence."""
-        self.plugin.ambiguous_files = {
-            "index.md": ["docs/index.md", "docs/guides/index.md"]
-        }
+        """Test that ambiguous files resolve to the first occurrence indexed.
 
-        resolved = self.plugin._resolve_filename("index.md")
+        Driven through on_files rather than by hand: an ambiguous_files entry
+        only ever exists for a name already in file_map, so setting one without
+        the other would assert against a state the plugin cannot reach.
+        """
+        mock_files = MagicMock(spec=Files)
+        mock_files.__iter__ = MagicMock(return_value=iter([
+            self.create_mock_file("docs/index.md"),
+            self.create_mock_file("docs/guides/index.md"),
+        ]))
 
-        assert resolved == "docs/index.md"
+        self.plugin.on_files(mock_files, config=MagicMock())
+
+        assert self.plugin.ambiguous_files["index.md"] == [
+            "docs/index.md",
+            "docs/guides/index.md",
+        ]
+        assert self.plugin._resolve_filename("index.md") == "docs/index.md"
+
+    def test_first_occurrence_invariant_holds(self):
+        """file_map must agree with the head of every ambiguous_files entry."""
+        mock_files = MagicMock(spec=Files)
+        mock_files.__iter__ = MagicMock(return_value=iter([
+            self.create_mock_file("a/dup.md"),
+            self.create_mock_file("b/dup.md"),
+            self.create_mock_file("c/dup.md"),
+            self.create_mock_file("a/unique.md"),
+        ]))
+
+        self.plugin.on_files(mock_files, config=MagicMock())
+
+        for filename, paths in self.plugin.ambiguous_files.items():
+            assert self.plugin.file_map[filename] == paths[0]
 
     def test_ambiguous_file_per_page_warning(self, caplog):
         """Test that using an ambiguous filename on a page emits a per-page warning."""
@@ -333,6 +360,429 @@ echo "[Another link in code](target.md)"
         # Verify HTML comment is preserved
         assert "[Link in comment](target.md)" in result
 
+    def test_image_with_empty_alt_text(self):
+        """![](image.png) must resolve — empty alt is the form for decorative images."""
+        self.plugin.file_map = {"diagram.png": "images/diagram.png"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("![](diagram.png)", page)
+
+        assert result == "![](../images/diagram.png)"
+
+    def test_link_with_title_preserved(self):
+        """A link title must be preserved and must not block resolution."""
+        self.plugin.file_map = {"guide.md": "docs/guides/guide.md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links('[Guide](guide.md "The Guide")', page)
+
+        assert result == '[Guide](guides/guide.md "The Guide")'
+
+    def test_link_with_title_not_warned_as_missing(self, caplog):
+        """A titled link must not be reported as unresolvable."""
+        import logging
+        self.plugin.config["warn_on_missing"] = True
+        self.plugin.file_map = {"guide.md": "docs/guides/guide.md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        with caplog.at_level(logging.WARNING, logger="mkdocs.plugins.easylinks"):
+            self.plugin._process_links("[Guide](guide.md 'The Guide')", page)
+
+        assert caplog.messages == []
+        assert self.plugin.stats["links_resolved"] == 1
+
+    def test_linked_image_badge_pattern(self):
+        """[![alt](icon.png)](target.md) must resolve both the image and the link."""
+        self.plugin.file_map = {
+            "logo.png": "images/logo.png",
+            "api.md": "reference/api.md",
+        }
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("[![Logo](logo.png)](api.md)", page)
+
+        assert result == "[![Logo](../images/logo.png)](../reference/api.md)"
+
+    def test_nested_image_resolved_under_external_link(self):
+        """A nested image resolves even when the outer target is left alone."""
+        self.plugin.file_map = {"logo.png": "images/logo.png"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "[![Logo](logo.png)](https://example.com)"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert result == "[![Logo](../images/logo.png)](https://example.com)"
+
+    def test_bracketed_link_text_preserved(self):
+        """Bracket nesting in link text must not cut the match short."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("[see [the] docs](api.md)", page)
+
+        assert result == "[see [the] docs](../reference/api.md)"
+
+    def test_unrelated_brackets_near_link(self):
+        """A bare [bracketed] phrase must not swallow a following link."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("See [foo] and [bar](api.md).", page)
+
+        assert result == "See [foo] and [bar](../reference/api.md)."
+
+    def test_anchor_containing_colon(self):
+        """A colon inside a fragment must not read as a URL scheme."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("[API](api.md#section:sub)", page)
+
+        assert result == "[API](../reference/api.md#section:sub)"
+
+    def test_angle_bracketed_destination(self):
+        """<...> destinations resolve and keep their brackets."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("[API](<api.md>)", page)
+
+        assert result == "[API](<../reference/api.md>)"
+
+    def test_destination_surrounding_whitespace_preserved(self):
+        """Whitespace around a destination is tolerated and preserved."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("[API]( api.md )", page)
+
+        assert result == "[API]( ../reference/api.md )"
+
+    def test_empty_destination_unchanged(self):
+        """An empty destination must be left exactly as written."""
+        page = self.create_mock_page("docs/index.md")
+
+        for markdown in ["[text]()", "[text](   )"]:
+            assert self.plugin._process_links(markdown, page) == markdown
+
+    def test_unterminated_angle_destination_unchanged(self):
+        """A malformed angle-bracket destination must be left alone."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "[API](<api.md)"
+
+        assert self.plugin._process_links(markdown, page) == markdown
+
+    def test_dangerous_schemes_still_blocked_in_new_syntaxes(self):
+        """The scheme guard must hold for angle brackets, titles and nesting."""
+        # A matching basename is indexed to prove the scheme wins regardless.
+        self.plugin.file_map = {"passwd": "etc/passwd", "x.md": "docs/x.md"}
+        page = self.create_mock_page("docs/index.md")
+
+        dangerous = [
+            "[XSS](<javascript:alert(1)>)",
+            '[XSS](javascript:alert(1) "title")',
+            "[XSS]( javascript:alert(1) )",
+            "[XSS](javascript:alert(1)#frag)",
+            "[Secret](<file:///etc/passwd>)",
+            "[VB](vbscript:msgbox(1))",
+            "[Data](data:text/html,<h1>hi</h1>)",
+        ]
+
+        for markdown in dangerous:
+            result = self.plugin._process_links(markdown, page)
+            assert result == markdown, f"Expected unchanged: {markdown}"
+
+    def test_links_in_inline_code_ignored(self):
+        """A link inside a backtick code span must not be rewritten."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "Write `[x](api.md)` to link, as in [this](api.md)."
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "`[x](api.md)`" in result
+        assert "[this](../reference/api.md)" in result
+
+    def test_protect_inline_code_disabled(self):
+        """Code spans are processed when protect_inline_code is false."""
+        self.plugin.config["protect_inline_code"] = False
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "Write `[x](api.md)` to link."
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "`[x](../reference/api.md)`" in result
+
+    def test_multi_backtick_code_span(self):
+        """A span opened with several backticks closes on the same count."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "Inline ``a `[x](api.md)` b`` and [real](api.md)."
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "``a `[x](api.md)` b``" in result
+        assert "[real](../reference/api.md)" in result
+
+    def test_unmatched_backtick_is_literal_text(self):
+        """A lone backtick protects nothing — it is literal text, per CommonMark."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "A stray ` backtick and [a link](api.md)."
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[a link](../reference/api.md)" in result
+
+    def test_code_span_does_not_cross_blank_line(self):
+        """A stray backtick must not pair across a paragraph break."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "Stray ` here.\n\n[middle](api.md)\n\nAnother ` there.\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[middle](../reference/api.md)" in result
+
+    def test_fence_delimiter_not_treated_as_code_span(self):
+        """With fences unprotected, ``` lines stay inert rather than pairing as a span."""
+        self.plugin.config["protect_code_fences"] = False
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "```\n[x](api.md)\n```\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[x](../reference/api.md)" in result
+
+    def test_inline_code_inside_fence_not_double_claimed(self):
+        """Backticks inside a fence belong to the fence, not to a code span."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "```python\nx = `[a](api.md)`\n```\n\n[after](api.md)\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "x = `[a](api.md)`" in result
+        assert "[after](../reference/api.md)" in result
+
+    def test_longer_fence_contains_shorter_fence(self):
+        """A ```` fence must not be closed by an inner ``` fence."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = (
+            "````markdown\n"
+            "```\n"
+            "[inside](api.md)\n"
+            "```\n"
+            "````\n"
+            "\n"
+            "Prose [outside](api.md)\n"
+        )
+
+        result = self.plugin._process_links(markdown, page)
+
+        # Everything within the outer fence is code, including the inner fence
+        assert "[inside](api.md)" in result
+        # ...and the document continues normally afterwards
+        assert "[outside](../reference/api.md)" in result
+
+    def test_fence_closer_must_be_alone_on_its_line(self):
+        """An opener like '```python' must not act as a closer for an open fence."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "```\n[a](api.md)\n```python\n[b](api.md)\n```\n\n[c](api.md)\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[a](api.md)" in result
+        assert "[b](api.md)" in result
+        assert "[c](../reference/api.md)" in result
+
+    def test_tilde_fence_not_closed_by_backticks(self):
+        """A ~~~ fence must only be closed by tildes."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "~~~\n[a](api.md)\n```\n[b](api.md)\n~~~\n\n[c](api.md)\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[a](api.md)" in result
+        assert "[b](api.md)" in result
+        assert "[c](../reference/api.md)" in result
+
+    def test_indented_fence_in_list_item_protected(self):
+        """A fence indented to a list item's content column is still a fence."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "- item:\n\n    ```\n    [x](api.md)\n    ```\n\n[after](api.md)\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[x](api.md)" in result
+        assert "[after](../reference/api.md)" in result
+
+    def test_indented_fence_in_admonition_protected(self):
+        """A fence inside an admonition is protected; the admonition's prose is not."""
+        self.plugin.file_map = {"guide.md": "reference/guide.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = (
+            "!!! note\n"
+            "    ```\n"
+            "    [code](guide.md)\n"
+            "    ```\n"
+            "\n"
+            "    See the [guide](guide.md).\n"
+        )
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[code](guide.md)" in result                   # fence protected
+        assert "[guide](../reference/guide.md)" in result     # prose still processed
+
+    def test_unclosed_fence_protects_rest_of_document(self):
+        """An unclosed fence runs to end of document, as CommonMark specifies."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "Prose [a](api.md)\n\n```python\n[b](api.md)\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[a](../reference/api.md)" in result   # before the fence
+        assert "[b](api.md)" in result                # inside the unclosed fence
+
+    def test_unclosed_html_comment_protects_rest_of_document(self):
+        """An unterminated comment likewise extends to the end of the document."""
+        self.plugin.file_map = {"api.md": "reference/api.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "Prose [a](api.md)\n\n<!-- [b](api.md)\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[a](../reference/api.md)" in result
+        assert "[b](api.md)" in result
+
+    def test_code_fence_inside_html_comment_restored(self):
+        """A fence nested in a comment must be restored, not left as a placeholder.
+
+        Extracting fences and comments in two passes stored the fence's
+        placeholder inside the comment's saved text. The restore pass does not
+        rescan its own replacements, so the placeholder reached the page
+        verbatim and the fence content was lost.
+        """
+        self.plugin.file_map = {"guide.md": "reference/guide.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "<!--\n```\n[x](guide.md)\n```\n-->\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert result == markdown
+        assert "EASYLINKS_" not in result
+
+    def test_html_comment_inside_code_fence_restored(self):
+        """The mirror case: a comment nested in a fence must survive intact."""
+        self.plugin.file_map = {"guide.md": "reference/guide.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "```html\n<!-- [x](guide.md) -->\n```\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert result == markdown
+        assert "EASYLINKS_" not in result
+
+    def test_fence_inside_comment_when_comments_unprotected(self):
+        """With comment protection off, a fence inside a comment is still protected."""
+        self.plugin.config["protect_html_comments"] = False
+        self.plugin.file_map = {"guide.md": "reference/guide.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "<!-- intro [a](guide.md)\n```\n[b](guide.md)\n```\n-->\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert "[b](guide.md)" in result                 # fence still protected
+        assert "[a](../reference/guide.md)" in result    # comment prose processed
+        assert "EASYLINKS_" not in result
+
+    def test_more_than_ten_protected_blocks_restored_exactly(self):
+        """Pages with more than ten protected blocks must restore each block intact.
+
+        Placeholders are numbered, so 'EASYLINKS_<hex>_1' is a textual prefix of
+        'EASYLINKS_<hex>_10'. Restoring via an alternation over the raw keys
+        matches the shorter key first and splices block 1's content in where
+        block 10 belonged, silently corrupting the page.
+        """
+        self.plugin.file_map = {"target.md": "reference/target.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "\n\n".join(f"```\nfence {i}\n```" for i in range(12))
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert result == markdown
+        for i in range(12):
+            assert f"fence {i}\n" in result
+        assert "EASYLINKS_" not in result
+
+    def test_many_mixed_protected_blocks_restored_exactly(self):
+        """Fences and HTML comments share one counter; both kinds must survive past ten."""
+        self.plugin.file_map = {"target.md": "reference/target.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        blocks = []
+        for i in range(8):
+            blocks.append(f"```\nfence {i} [x](target.md)\n```")
+            blocks.append(f"<!-- comment {i} [x](target.md) -->")
+        markdown = "\n\n".join(blocks)
+
+        result = self.plugin._process_links(markdown, page)
+
+        # 16 protected blocks, none processed and none swapped for another
+        assert result == markdown
+        assert "EASYLINKS_" not in result
+
+    def test_placeholder_lookalike_text_left_alone(self):
+        """Authored text shaped like a placeholder must not be swallowed on restore."""
+        self.plugin.file_map = {"target.md": "reference/target.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        lookalike = "EASYLINKS_" + "a" * 32 + "_9_"
+        markdown = f"```\ncode\n```\n\nProse mentioning {lookalike} verbatim.\n"
+
+        result = self.plugin._process_links(markdown, page)
+
+        assert lookalike in result
+        assert "```\ncode\n```" in result
+
     def test_code_fence_with_backticks(self):
         """Test code fences using backticks."""
         self.plugin.file_map = {"api.md": "reference/api.md"}
@@ -424,6 +874,8 @@ Final link to [API](api.md).
 
         # HTML comment should be unchanged including its nested code fence
         assert "And a [link](api.md) in the comment" in result
+        assert "Commented section with code:\n```\n[guide.md](guide.md)\n```" in result
+        assert "EASYLINKS_" not in result
 
     def test_image_link_simple(self):
         """Test that image links are processed."""
@@ -895,6 +1347,36 @@ Read more in the [guide](guide.md).
         assert self.plugin.link_counts["docs/api.md"] == 3
         assert self.plugin.link_counts["docs/guide.md"] == 1
 
+    def test_image_embeds_counted_in_link_counts(self):
+        """Image embeds must be counted as references, like ordinary links."""
+        self.plugin.file_map = {"diagram.png": "images/diagram.png"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = "![A](diagram.png)\n![B](diagram.png)"
+
+        self.plugin._process_links(markdown, page)
+
+        assert self.plugin.link_counts["images/diagram.png"] == 2
+
+    def test_embedded_image_not_reported_as_orphaned(self, caplog):
+        """An image that is embedded somewhere must not appear under Orphaned files."""
+        import logging
+        self.plugin.config["show_stats"] = True
+        self.plugin.file_map = {
+            "used.png": "images/used.png",
+            "unused.png": "images/unused.png",
+        }
+
+        page = self.create_mock_page("docs/index.md")
+        self.plugin._process_links("![Used](used.png)", page)
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=MagicMock())
+
+        joined = "\n".join(caplog.messages)
+        assert "images/unused.png" in joined      # genuinely orphaned
+        assert "images/used.png" not in joined.split("Orphaned")[1]
+
     def test_statistics_unresolved_links(self):
         """Test that unresolved links are counted."""
         self.plugin.file_map = {"exists.md": "docs/exists.md"}
@@ -1022,6 +1504,35 @@ Read more in the [guide](guide.md).
         joined = "\n".join(caplog.messages)
         assert "docs/guide.md" in joined
         assert "Orphaned" in joined
+
+    def test_post_build_paths_use_forward_slashes(self, caplog):
+        """Stats output must read the same regardless of the platform's separator."""
+        import logging
+        self.plugin.config["show_stats"] = True
+        self.plugin.file_map = {"orphan.md": r"docs\sub\orphan.md"}
+        self.plugin.link_counts[r"docs\sub\linked.md"] = 3
+        mock_config = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=mock_config)
+
+        joined = "\n".join(caplog.messages)
+        assert "docs/sub/linked.md" in joined
+        assert "docs/sub/orphan.md" in joined
+        assert "\\" not in joined
+
+    def test_post_build_paths_are_sanitized(self, caplog):
+        """Filenames are attacker-controlled, so stats output must escape them too."""
+        import logging
+        self.plugin.config["show_stats"] = True
+        self.plugin.file_map = {"evil.md": "docs/evil\nINFO - spoofed.md"}
+        mock_config = MagicMock()
+
+        with caplog.at_level(logging.INFO, logger="mkdocs.plugins.easylinks"):
+            self.plugin.on_post_build(config=mock_config)
+
+        joined = "\n".join(caplog.messages)
+        assert "docs/evil\\nINFO - spoofed.md" in joined
 
     def test_post_build_orphaned_files_truncated(self, caplog):
         """Test that orphaned files list is truncated after 10 entries."""

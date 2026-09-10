@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=77.0.0", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mkdocs-easylinks-plugin"
-version = "0.2.3"
+version = "0.3.0"
 description = "An MkDocs plugin that allows linking to files by filename only"
 readme = "README.md"
 requires-python = ">=3.10"

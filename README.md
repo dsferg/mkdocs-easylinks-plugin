@@ -42,6 +42,7 @@ plugins:
       show_stats: false          # Show link statistics after build (default: false)
       protect_code_fences: true  # Leave links inside fenced code blocks unchanged (default: true)
       protect_html_comments: true  # Leave links inside HTML comments unchanged (default: true)
+      protect_inline_code: true  # Leave links inside `code spans` unchanged (default: true)
 ```
 
 #### Available Options
@@ -53,6 +54,7 @@ plugins:
 - **`show_stats`** (bool, default: `false`): Display link statistics after the build completes
 - **`protect_code_fences`** (bool, default: `true`): When enabled, links inside fenced code blocks (` ``` ` or `~~~`) are left unchanged. Set to `false` to process them like normal content.
 - **`protect_html_comments`** (bool, default: `true`): When enabled, links inside HTML comments (`<!-- -->`) are left unchanged. Set to `false` to process them like normal content.
+- **`protect_inline_code`** (bool, default: `true`): When enabled, links inside inline code spans (`` `like this` ``) are left unchanged. Set to `false` to process them like normal content.
 
 #### Ignoring Specific Files
 
@@ -100,8 +102,14 @@ This will display:
 - Files scanned, indexed, ambiguous, and ignored
 - Links processed, resolved, and unresolved
 - Images processed, resolved, and unresolved
-- Most frequently linked files
-- Orphaned files (indexed but never linked)
+- Most frequently referenced files
+- Orphaned files (indexed but never referenced)
+
+> **Note:** Reference counts include both links and image embeds, but only those written as bare filenames — the form this plugin resolves. A file reached solely through an explicit relative path (`../images/logo.png`) is invisible to the plugin and will be listed as orphaned.
+>
+> The orphan list also covers every file MkDocs supplies, which includes your theme's own CSS, JavaScript and icons. Those are never referenced from your Markdown, so they will always be listed. Add them to `exclude_dirs` if the noise bothers you.
+
+Statistics are written at `INFO` level, which MkDocs shows by default; `mkdocs build --quiet` suppresses them.
 
 ## Examples
 
@@ -149,6 +157,10 @@ Anchors work for document links:
 - `[text](filename.md)` - Simple document filenames
 - `[text](file.md#anchor)` - Document filenames with anchors
 - `![alt](image.png)` - Simple image filenames (png, jpg, svg, gif, etc.)
+- `![](image.png)` - Images with no alt text
+- `[text](file.md "Title")` - Destinations with a link title, which is preserved
+- `[text](<file name.md>)` - Angle-bracketed destinations, which keep their brackets
+- `[![alt](icon.png)](file.md)` - A linked image; both the image and the link resolve
 
 **Not processed** (left as-is):
 - `[text](https://example.com)` - External URLs
@@ -156,9 +168,12 @@ Anchors work for document links:
 - `[text](/absolute/path.md)` - Absolute paths
 - `[text](../relative/path.md)` - Explicit relative paths with directories
 - `[text](#anchor)` - Fragment-only links
-- `[text](javascript:...)`, `[text](data:...)`, `[text](mailto:...)`, etc. — any URL containing a colon (treated as a scheme)
+- `[text](javascript:...)`, `[text](data:...)`, `[text](mailto:...)`, etc. — any destination containing a colon (treated as a scheme). The destination is checked with any `#fragment` removed, so a colon inside an anchor is not mistaken for a scheme.
+- `[text][ref]` with a `[ref]: file.md` definition — reference-style links are not resolved
+- `[text](file.md?query=1)` - Destinations carrying a query string
 - Links/images inside code fences (` ``` ` or `~~~`) — unless `protect_code_fences: false`
 - Links/images inside HTML comments (`<!-- -->`) — unless `protect_html_comments: false`
+- Links/images inside inline code spans (`` `like this` ``) — unless `protect_inline_code: false`
 
 > **Security note:** easylinks does not sanitize link targets. Schemed URLs (including `javascript:` and `data:`) are passed through unchanged for the Markdown renderer to handle. XSS protection in your rendered site is the responsibility of MkDocs and the Markdown extensions you have configured — not this plugin.
 
@@ -178,19 +193,37 @@ The plugin intelligently ignores links in:
 <!-- This [link](example.md) won't be processed -->
 ```
 
-This ensures that example code and commented-out content remain unchanged. Both behaviours are configurable via `protect_code_fences` and `protect_html_comments`.
+**Inline code spans:**
+````markdown
+Write `[link](example.md)` to reference a file.
+````
+
+A code span is closed by a backtick run of the same length, and never spans a
+blank line — so a stray backtick in your prose is harmless.
+
+This ensures that example code and commented-out content remain unchanged. All three behaviours are configurable via `protect_code_fences`, `protect_html_comments` and `protect_inline_code`.
+
+Fences are matched the way a Markdown renderer matches them:
+
+- A fence is closed only by the same character, repeated at least as many times, alone on its line. So a ` ```` ` block can contain ` ``` ` blocks — useful for documenting fenced syntax itself.
+- A fence with no closing fence extends to the end of the document.
+- Fences are recognised at any indentation, so a code block nested inside a list item or an admonition is protected.
 
 **Important: Indented Content**
 
-Only explicit code fences (``` or ~~~) are protected. Indented content, such as in MkDocs admonitions, **is processed normally**:
+Only explicit code fences (``` or ~~~) are protected. Indented *prose*, such as the body of a MkDocs admonition, **is processed normally**:
 
-```markdown
+````markdown
 !!! note
     This [link](guide.md) WILL be processed.
     The plugin works inside admonitions!
-```
 
-This design choice ensures the plugin works seamlessly with MkDocs features like admonitions, which rely heavily on indentation.
+    ```
+    But this [link](guide.md) will NOT be — it is a fence.
+    ```
+````
+
+This design choice ensures the plugin works seamlessly with MkDocs features like admonitions, which rely heavily on indentation, while still leaving genuine code samples alone.
 
 ## How It Works
 
