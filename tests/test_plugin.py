@@ -303,6 +303,32 @@ Another [working link](target.md) outside the fence.
         assert "```markdown" in result
         assert "This is example code with [a link](target.md)" in result
 
+    def test_code_fence_with_crlf_line_endings(self):
+        """A CRLF-terminated closing fence must still be recognized.
+
+        Otherwise the fence looks unterminated, is treated as running to the end
+        of the document, and every link after it silently stops resolving.
+        """
+        self.plugin.file_map = {"target.md": "docs/guides/target.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = (
+            "Before fence [working link](target.md).\r\n"
+            "\r\n"
+            "```\r\n"
+            "Example [a link](target.md) not processed.\r\n"
+            "```\r\n"
+            "\r\n"
+            "After fence [working link](target.md).\r\n"
+        )
+
+        result = self.plugin._process_links(markdown, page)
+
+        # Both links outside the fence resolve.
+        assert result.count("guides/target.md") == 2
+        # The link inside the fence stays untouched.
+        assert "Example [a link](target.md) not processed." in result
+
     def test_links_in_html_comments_ignored(self):
         """Test that links inside HTML comments are not processed."""
         self.plugin.file_map = {"target.md": "docs/guides/target.md"}

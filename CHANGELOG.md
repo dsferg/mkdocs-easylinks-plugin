@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Code fences with Windows (`\r\n`) line endings are now closed correctly. Previously the closing fence went unrecognised, so the fence was treated as running to the end of the document and every link and image after it silently stopped resolving. Blank-line detection for inline code spans also handles CRLF now
+
 ## [0.3.0] - 2026-09-10
 
 ### Security
