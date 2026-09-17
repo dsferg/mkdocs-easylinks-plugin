@@ -72,7 +72,16 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
     # as one link rather than cut short at the inner image's closing bracket.
     # The two text alternatives cannot match the same first character, so the
     # repetition cannot backtrack exponentially.
-    _link_pattern = re.compile(r'(!)?\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([^)]*)\)')
+    #
+    # The destination has two forms. The first, ``[ \t]*<[^>]*>[^)]*``, matches
+    # an angle-bracketed destination, in which a Markdown ``)`` is legal — so
+    # [x](<a (1).md>) is captured whole instead of being cut at the paren inside
+    # the brackets. It is listed first so a destination that opens with ``<``
+    # takes it; the fallback ``[^)]*`` handles every bare destination and stops,
+    # as before, at the first ``)``.
+    _link_pattern = re.compile(
+        r'(!)?\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([ \t]*<[^>]*>[^)]*|[^)]*)\)'
+    )
 
     # Protected blocks are located by finding *openers* and then scanning for
     # each opener's own closer, rather than by one regex matching whole blocks.

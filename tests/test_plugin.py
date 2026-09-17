@@ -484,6 +484,27 @@ echo "[Another link in code](target.md)"
 
         assert result == "[API](<../reference/api.md>)"
 
+    def test_angle_bracketed_destination_with_parentheses(self):
+        """A ``)`` is legal inside an angle-bracketed destination and must not
+        cut the destination short."""
+        self.plugin.file_map = {"a (1).md": "reference/a (1).md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("[A](<a (1).md>)", page)
+
+        assert result == "[A](<../reference/a (1).md>)"
+
+    def test_angle_bracketed_destination_with_parentheses_and_title(self):
+        """Parens in the bracketed destination resolve; a trailing title survives."""
+        self.plugin.file_map = {"a (1).md": "reference/a (1).md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links('[A](<a (1).md> "t")', page)
+
+        assert result == '[A](<../reference/a (1).md> "t")'
+
     def test_destination_surrounding_whitespace_preserved(self):
         """Whitespace around a destination is tolerated and preserved."""
         self.plugin.file_map = {"api.md": "reference/api.md"}

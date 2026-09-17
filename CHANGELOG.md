@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Code fences with Windows (`\r\n`) line endings are now closed correctly. Previously the closing fence went unrecognised, so the fence was treated as running to the end of the document and every link and image after it silently stopped resolving. Blank-line detection for inline code spans also handles CRLF now
+- Angle-bracketed destinations containing a parenthesis, such as `[text](<file (1).md>)`, now resolve. Previously the destination was cut short at the first `)` inside the brackets and the link was left unchanged
 
 ## [0.3.0] - 2026-09-10
 
