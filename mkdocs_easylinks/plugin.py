@@ -72,7 +72,16 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
     # as one link rather than cut short at the inner image's closing bracket.
     # The two text alternatives cannot match the same first character, so the
     # repetition cannot backtrack exponentially.
-    _link_pattern = re.compile(r'(!)?\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([^)]*)\)')
+    #
+    # The destination has two forms. The first, ``[ \t]*<[^>]*>[^)]*``, matches
+    # an angle-bracketed destination, in which a Markdown ``)`` is legal — so
+    # [x](<a (1).md>) is captured whole instead of being cut at the paren inside
+    # the brackets. It is listed first so a destination that opens with ``<``
+    # takes it; the fallback ``[^)]*`` handles every bare destination and stops,
+    # as before, at the first ``)``.
+    _link_pattern = re.compile(
+        r'(!)?\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([ \t]*<[^>]*>[^)]*|[^)]*)\)'
+    )
 
     # Protected blocks are located by finding *openers* and then scanning for
     # each opener's own closer, rather than by one regex matching whole blocks.
@@ -100,7 +109,9 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
     _COMMENT_OPENER = r'(?P<comment><!--)'
     _CODE_SPAN_OPENER = r'(?P<span>(?<!`)`+(?!`))'
     _COMMENT_CLOSER = '-->'
-    _BLANK_LINE = re.compile(r'\n[ \t]*\n')
+    # ``\r?`` before each newline so a blank line terminates a code span whether
+    # the source uses Unix (``\n``) or Windows (``\r\n``) line endings.
+    _BLANK_LINE = re.compile(r'\r?\n[ \t]*\r?\n')
     _opener_patterns: Dict[
         Tuple[bool, bool, bool], Optional["re.Pattern[str]"]
     ] = {}
@@ -393,8 +404,12 @@ class EasyLinksPlugin(BasePlugin[EasyLinksConfig]):
             # opener, and carries nothing else on its line. Requiring the length
             # to match is what stops a ```-fence from closing a ````-fence.
             fence = text.strip()
+            # The trailing ``\r?`` lets a Windows (``\r\n``) closing fence match:
+            # in MULTILINE mode ``$`` sits just before the ``\n``, so the ``\r``
+            # must be consumed explicitly or the closer is missed and the fence
+            # is treated as running to the end of the document.
             closer = re.compile(
-                rf'^[ \t]*{fence[0]}{{{len(fence)},}}[ \t]*$', re.MULTILINE
+                rf'^[ \t]*{fence[0]}{{{len(fence)},}}[ \t]*\r?$', re.MULTILINE
             ).search(markdown, opener.end())
             return closer.end() if closer else len(markdown)
 

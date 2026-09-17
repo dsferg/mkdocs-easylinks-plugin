@@ -303,6 +303,32 @@ Another [working link](target.md) outside the fence.
         assert "```markdown" in result
         assert "This is example code with [a link](target.md)" in result
 
+    def test_code_fence_with_crlf_line_endings(self):
+        """A CRLF-terminated closing fence must still be recognized.
+
+        Otherwise the fence looks unterminated, is treated as running to the end
+        of the document, and every link after it silently stops resolving.
+        """
+        self.plugin.file_map = {"target.md": "docs/guides/target.md"}
+
+        page = self.create_mock_page("docs/index.md")
+        markdown = (
+            "Before fence [working link](target.md).\r\n"
+            "\r\n"
+            "```\r\n"
+            "Example [a link](target.md) not processed.\r\n"
+            "```\r\n"
+            "\r\n"
+            "After fence [working link](target.md).\r\n"
+        )
+
+        result = self.plugin._process_links(markdown, page)
+
+        # Both links outside the fence resolve.
+        assert result.count("guides/target.md") == 2
+        # The link inside the fence stays untouched.
+        assert "Example [a link](target.md) not processed." in result
+
     def test_links_in_html_comments_ignored(self):
         """Test that links inside HTML comments are not processed."""
         self.plugin.file_map = {"target.md": "docs/guides/target.md"}
@@ -457,6 +483,27 @@ echo "[Another link in code](target.md)"
         result = self.plugin._process_links("[API](<api.md>)", page)
 
         assert result == "[API](<../reference/api.md>)"
+
+    def test_angle_bracketed_destination_with_parentheses(self):
+        """A ``)`` is legal inside an angle-bracketed destination and must not
+        cut the destination short."""
+        self.plugin.file_map = {"a (1).md": "reference/a (1).md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links("[A](<a (1).md>)", page)
+
+        assert result == "[A](<../reference/a (1).md>)"
+
+    def test_angle_bracketed_destination_with_parentheses_and_title(self):
+        """Parens in the bracketed destination resolve; a trailing title survives."""
+        self.plugin.file_map = {"a (1).md": "reference/a (1).md"}
+
+        page = self.create_mock_page("docs/index.md")
+
+        result = self.plugin._process_links('[A](<a (1).md> "t")', page)
+
+        assert result == '[A](<../reference/a (1).md> "t")'
 
     def test_destination_surrounding_whitespace_preserved(self):
         """Whitespace around a destination is tolerated and preserved."""
